@@ -22,12 +22,24 @@ class BotManager {
         this.reconnectFlags = {};
         this.spawnFlags = {};
         this.firstSpawn = {};
+        this.availableNames = [];
         
         if (!fs.existsSync(this.botsDir)) {
             fs.mkdirSync(this.botsDir);
         }
         
+        this.loadNames();
         this.loadBots();
+    }
+    
+    loadNames() {
+        const namesPath = path.join(__dirname, 'names.txt');
+        if (fs.existsSync(namesPath)) {
+            const content = fs.readFileSync(namesPath, 'utf8');
+            this.availableNames = content.split('\n')
+                .map(line => line.trim())
+                .filter(line => line.length > 0);
+        }
     }
     
     log(message, socketId = null) {
@@ -113,6 +125,40 @@ class BotManager {
         this.saveBot(botData);
         this.log(`Utworzono bota: ${name}`);
         this.io.emit('botList', this.getBotsList());
+        return true;
+    }
+    
+    createRandomBots(count, server, version) {
+        if (this.availableNames.length === 0) {
+            this.log('Brak dostepnych nazw w pliku names.txt!');
+            return false;
+        }
+        
+        if (count < 1 || count > 1000) {
+            this.log('Liczba botow musi byc od 1 do 1000!');
+            return false;
+        }
+        
+        const usedNames = Object.keys(this.bots);
+        const availableForUse = this.availableNames.filter(name => !usedNames.includes(name));
+        
+        if (availableForUse.length === 0) {
+            this.log('Wszystkie nazwy z names.txt sa juz uzyte!');
+            return false;
+        }
+        
+        const actualCount = Math.min(count, availableForUse.length);
+        const shuffled = [...availableForUse].sort(() => Math.random() - 0.5);
+        const selectedNames = shuffled.slice(0, actualCount);
+        
+        let created = 0;
+        for (const name of selectedNames) {
+            if (this.createBot(name, server, version)) {
+                created++;
+            }
+        }
+        
+        this.log(`Utworzono ${created} losowych botow`);
         return true;
     }
     
@@ -624,10 +670,21 @@ io.on('connection', (socket) => {
         socket.emit('log', `> ${command}`);
         
         if (cmd === 'create') {
-            if (parts.length !== 4) {
-                socket.emit('log', 'Uzycie: create <nazwa> <ip[:port]> <wersja>');
+            if (parts.length !== 4 && parts.length !== 5) {
+                socket.emit('log', 'Uzycie: create <nazwa|.randomname> <ip[:port]> <wersja> [liczba]');
+                socket.emit('log', 'Przyklad: create bot1 hypixel.net 1.8.9');
+                socket.emit('log', 'Przyklad: create .randomname sigma.pl 1.8 5');
             } else {
-                manager.createBot(parts[1], parts[2], parts[3]);
+                if (parts[1] === '.randomname') {
+                    const count = parts[4] ? parseInt(parts[4]) : 1;
+                    if (isNaN(count)) {
+                        socket.emit('log', 'Liczba musi byc liczba od 1 do 1000!');
+                    } else {
+                        manager.createRandomBots(count, parts[2], parts[3]);
+                    }
+                } else {
+                    manager.createBot(parts[1], parts[2], parts[3]);
+                }
             }
         } else if (cmd === 'start') {
             if (parts.length < 2) {
@@ -655,17 +712,18 @@ io.on('connection', (socket) => {
                     if (allBots.length === 0) {
                         socket.emit('log', 'Brak utworzonych botow!');
                     } else {
-                        let started = 0;
-                        for (const name of allBots) {
-                            if (!manager.activeBots[name]) {
-                                manager.startBot(name, flags);
-                                started++;
-                            }
-                        }
-                        if (started === 0) {
+                        const botsToStart = allBots.filter(name => !manager.activeBots[name]);
+                        
+                        if (botsToStart.length === 0) {
                             socket.emit('log', 'Wszystkie boty juz sa uruchomione!');
                         } else {
-                            socket.emit('log', `Uruchomiono ${started} botow`);
+                            socket.emit('log', `Uruchamianie ${botsToStart.length} botow (co 3s)...`);
+                            
+                            botsToStart.forEach((name, index) => {
+                                setTimeout(() => {
+                                    manager.startBot(name, flags);
+                                }, index * 3000);
+                            });
                         }
                     }
                 } else {

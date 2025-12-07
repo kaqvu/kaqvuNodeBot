@@ -42,6 +42,7 @@ Otwórz przeglądarkę: `http://localhost:8080`
 ### Zarządzanie botami
 
 - `create <nazwa> <ip[:port]> <wersja>` - Tworzy bota
+- `create .randomname <ip[:port]> <wersja> <liczba>` - Tworzy boty z losowymi nazwami z `names.txt`
 - `start <nazwa|*> [flagi]` - Uruchamia bota/boty
 - `stop <nazwa>` - Zatrzymuje bota
 - `delete <nazwa>` - Usuwa bota
@@ -81,6 +82,12 @@ create bot1 hypixel.net 1.8.9
 start bot1
 ```
 
+### Tworzenie wielu botów z losowymi nazwami
+```bash
+create .randomname sigma.pl 1.8 10
+```
+Utworzy 10 botów z losowymi nazwami z pliku `names.txt`
+
 ### Start z logowaniem i anti-AFK
 ```bash
 start bot1 -js /login haslo123 -r -j
@@ -105,7 +112,7 @@ listitems * together
 
 ## 🎮 Obsługiwane wersje Minecraft
 
-Wszystkie wersje wspierane przez Mineflayer (Stan na 7.12.2025 1.8 - 1.21.8)
+Wszystkie wersje wspierane przez Mineflayer (1.8 - 1.20+)
 
 ## 📁 Struktura
 
@@ -114,6 +121,7 @@ kaqvuNodeBot/
 ├── web.js              # Serwer webowy
 ├── package.json        # Konfiguracja
 ├── .env               # Port (opcjonalnie)
+├── names.txt          # Nazwy botów (opcjonalnie)
 ├── bots/              # Zapisane boty (auto)
 └── web/               # Interfejs webowy
     ├── index.html
@@ -123,10 +131,22 @@ kaqvuNodeBot/
 
 ## 🔧 Konfiguracja
 
+### Port serwera
 Utwórz plik `.env`:
 ```env
 PORT=8080
 ```
+
+### Losowe nazwy botów
+Utwórz plik `names.txt` z listą nazw (jedna nazwa na linię):
+```
+kaqvu_x1
+kaqvu_x2
+bot_123
+player_abc
+...
+```
+Następnie użyj: `create .randomname <ip> <wersja> <liczba>`
 
 ## ⚠️ Uwagi
 
@@ -138,6 +158,10 @@ PORT=8080
 ## 👤 Autor
 
 kaqvu
+
+## 📄 Licencja
+
+MIT
 
 ---
 
