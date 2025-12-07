@@ -368,6 +368,7 @@ class BotManager {
         this.log(`\n${'='.repeat(50)}`, socketId);
         this.log(`LOGI BOTA: ${botName}`, socketId);
         this.log(`Wpisz '.exit' aby wyjsc z logow`, socketId);
+        this.log(`Wpisz '.listitems' aby zobaczyc ekwipunek`, socketId);
         this.log(`Wpisz wiadomosc aby wyslac na chat`, socketId);
         this.log(`${'='.repeat(50)}\n`, socketId);
         this.io.to(socketId).emit('logsMode', true);
@@ -406,6 +407,176 @@ class BotManager {
             this.log(`[ERROR] Nie mozna wyslac: ${err.message}`, socketId);
             return false;
         }
+    }
+    
+    listItems(socketId) {
+        const botName = this.logsModes[socketId];
+        if (!botName) {
+            return false;
+        }
+        
+        if (!this.activeBots[botName]) {
+            this.log(`Bot '${botName}' nie jest uruchomiony!`, socketId);
+            return false;
+        }
+        
+        const bot = this.activeBots[botName];
+        const items = bot.inventory.items();
+        
+        this.log(`\n${'='.repeat(50)}`, socketId);
+        this.log(`EKWIPUNEK BOTA: ${botName}`, socketId);
+        this.log(`${'='.repeat(50)}`, socketId);
+        
+        if (items.length === 0) {
+            this.log('Ekwipunek jest pusty!', socketId);
+        } else {
+            for (const item of items) {
+                let itemInfo = `[Slot ${item.slot}] ${item.name} x${item.count}`;
+                
+                if (item.nbt && item.nbt.value && item.nbt.value.Enchantments) {
+                    const enchants = item.nbt.value.Enchantments.value.value;
+                    if (enchants && enchants.length > 0) {
+                        itemInfo += '\n  Enchanty:';
+                        for (const enchant of enchants) {
+                            const enchantId = enchant.id.value;
+                            const enchantLvl = enchant.lvl.value;
+                            itemInfo += `\n    - ${enchantId} (Poziom ${enchantLvl})`;
+                        }
+                    }
+                }
+                
+                this.log(itemInfo, socketId);
+            }
+        }
+        
+        this.log(`${'='.repeat(50)}\n`, socketId);
+        return true;
+    }
+    
+    listItemsCommand(socketId, botName, together = false) {
+        if (botName === '*') {
+            const activeBotsNames = Object.keys(this.activeBots);
+            
+            if (activeBotsNames.length === 0) {
+                this.log('Brak aktywnych botow!', socketId);
+                return false;
+            }
+            
+            if (together) {
+                const allItems = [];
+                
+                for (const name of activeBotsNames) {
+                    const bot = this.activeBots[name];
+                    const items = bot.inventory.items();
+                    allItems.push(...items);
+                }
+                
+                this.log(`\n${'='.repeat(50)}`, socketId);
+                this.log(`EKWIPUNEK WSZYSTKICH BOTOW`, socketId);
+                this.log(`${'='.repeat(50)}`, socketId);
+                
+                if (allItems.length === 0) {
+                    this.log('Wszystkie ekwipunki sa puste!', socketId);
+                } else {
+                    for (const item of allItems) {
+                        let itemInfo = `[Slot ${item.slot}] ${item.name} x${item.count}`;
+                        
+                        if (item.nbt && item.nbt.value && item.nbt.value.Enchantments) {
+                            const enchants = item.nbt.value.Enchantments.value.value;
+                            if (enchants && enchants.length > 0) {
+                                itemInfo += '\n  Enchanty:';
+                                for (const enchant of enchants) {
+                                    const enchantId = enchant.id.value;
+                                    const enchantLvl = enchant.lvl.value;
+                                    itemInfo += `\n    - ${enchantId} (Poziom ${enchantLvl})`;
+                                }
+                            }
+                        }
+                        
+                        this.log(itemInfo, socketId);
+                    }
+                }
+                
+                this.log(`${'='.repeat(50)}\n`, socketId);
+            } else {
+                for (const name of activeBotsNames) {
+                    const bot = this.activeBots[name];
+                    const items = bot.inventory.items();
+                    
+                    this.log(`\n${'='.repeat(50)}`, socketId);
+                    this.log(`EKWIPUNEK BOTA: ${name}`, socketId);
+                    this.log(`${'='.repeat(50)}`, socketId);
+                    
+                    if (items.length === 0) {
+                        this.log('Ekwipunek jest pusty!', socketId);
+                    } else {
+                        for (const item of items) {
+                            let itemInfo = `[Slot ${item.slot}] ${item.name} x${item.count}`;
+                            
+                            if (item.nbt && item.nbt.value && item.nbt.value.Enchantments) {
+                                const enchants = item.nbt.value.Enchantments.value.value;
+                                if (enchants && enchants.length > 0) {
+                                    itemInfo += '\n  Enchanty:';
+                                    for (const enchant of enchants) {
+                                        const enchantId = enchant.id.value;
+                                        const enchantLvl = enchant.lvl.value;
+                                        itemInfo += `\n    - ${enchantId} (Poziom ${enchantLvl})`;
+                                    }
+                                }
+                            }
+                            
+                            this.log(itemInfo, socketId);
+                        }
+                    }
+                    
+                    this.log(`${'='.repeat(50)}\n`, socketId);
+                }
+            }
+            
+            return true;
+        }
+        
+        if (!this.bots[botName]) {
+            this.log(`Bot '${botName}' nie istnieje!`, socketId);
+            return false;
+        }
+        
+        if (!this.activeBots[botName]) {
+            this.log(`Bot '${botName}' nie jest uruchomiony!`, socketId);
+            return false;
+        }
+        
+        const bot = this.activeBots[botName];
+        const items = bot.inventory.items();
+        
+        this.log(`\n${'='.repeat(50)}`, socketId);
+        this.log(`EKWIPUNEK BOTA: ${botName}`, socketId);
+        this.log(`${'='.repeat(50)}`, socketId);
+        
+        if (items.length === 0) {
+            this.log('Ekwipunek jest pusty!', socketId);
+        } else {
+            for (const item of items) {
+                let itemInfo = `[Slot ${item.slot}] ${item.name} x${item.count}`;
+                
+                if (item.nbt && item.nbt.value && item.nbt.value.Enchantments) {
+                    const enchants = item.nbt.value.Enchantments.value.value;
+                    if (enchants && enchants.length > 0) {
+                        itemInfo += '\n  Enchanty:';
+                        for (const enchant of enchants) {
+                            const enchantId = enchant.id.value;
+                            const enchantLvl = enchant.lvl.value;
+                            itemInfo += `\n    - ${enchantId} (Poziom ${enchantLvl})`;
+                        }
+                    }
+                }
+                
+                this.log(itemInfo, socketId);
+            }
+        }
+        
+        this.log(`${'='.repeat(50)}\n`, socketId);
+        return true;
     }
 }
 
@@ -473,6 +644,17 @@ io.on('connection', (socket) => {
             } else {
                 manager.enterLogs(socket.id, parts[1]);
             }
+        } else if (cmd === 'listitems') {
+            if (parts.length < 2) {
+                socket.emit('log', 'Uzycie: listitems <nazwa|*> [together]');
+                socket.emit('log', 'Przyklad: listitems kaqvu_x1');
+                socket.emit('log', 'Przyklad: listitems * - pokazuje wszystkie boty oddzielnie');
+                socket.emit('log', 'Przyklad: listitems * together - laczy itemy wszystkich botow');
+            } else {
+                const botName = parts[1];
+                const together = parts[2] === 'together';
+                manager.listItemsCommand(socket.id, botName, together);
+            }
         } else if (cmd === 'list') {
             const count = Object.keys(manager.bots).length;
             socket.emit('log', `Utworzone boty: ${count}`);
@@ -493,6 +675,7 @@ io.on('connection', (socket) => {
             socket.emit('log', '  stop <nazwa>');
             socket.emit('log', '  delete <nazwa>');
             socket.emit('log', '  logs <nazwa>');
+            socket.emit('log', '  listitems <nazwa|*> [together]');
             socket.emit('log', '  list');
             socket.emit('log', '  clear');
             socket.emit('log', '  help');
@@ -517,6 +700,8 @@ io.on('connection', (socket) => {
         
         if (trimmed === '.exit') {
             manager.exitLogs(socket.id);
+        } else if (trimmed === '.listitems') {
+            manager.listItems(socket.id);
         } else if (trimmed) {
             manager.sendMessage(socket.id, trimmed);
         }
