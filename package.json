@@ -1,7 +1,7 @@
 {
   "name": "kaqvuNodeBot",
   "version": "1.9",
-  "description": "System zarzadzania botami Minecraft",
+  "description": "AFK Minecraft Bots managment",
   "main": "server.js",
   "scripts": {
     "start": "node web.js",
