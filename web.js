@@ -463,33 +463,55 @@ class BotManager {
             }
             
             if (together) {
-                const allItems = [];
+                const itemsMap = new Map();
                 
                 for (const name of activeBotsNames) {
                     const bot = this.activeBots[name];
                     const items = bot.inventory.items();
-                    allItems.push(...items);
+                    
+                    for (const item of items) {
+                        const itemKey = item.name;
+                        let enchantKey = '';
+                        
+                        if (item.nbt && item.nbt.value && item.nbt.value.Enchantments) {
+                            const enchants = item.nbt.value.Enchantments.value.value;
+                            if (enchants && enchants.length > 0) {
+                                const enchantStrs = enchants.map(e => `${e.id.value}:${e.lvl.value}`);
+                                enchantKey = enchantStrs.sort().join(',');
+                            }
+                        }
+                        
+                        const fullKey = `${itemKey}|${enchantKey}`;
+                        
+                        if (itemsMap.has(fullKey)) {
+                            itemsMap.get(fullKey).count += item.count;
+                        } else {
+                            itemsMap.set(fullKey, {
+                                name: item.name,
+                                count: item.count,
+                                enchants: item.nbt && item.nbt.value && item.nbt.value.Enchantments ? 
+                                    item.nbt.value.Enchantments.value.value : null
+                            });
+                        }
+                    }
                 }
                 
                 this.log(`\n${'='.repeat(50)}`, socketId);
                 this.log(`EKWIPUNEK WSZYSTKICH BOTOW`, socketId);
                 this.log(`${'='.repeat(50)}`, socketId);
                 
-                if (allItems.length === 0) {
+                if (itemsMap.size === 0) {
                     this.log('Wszystkie ekwipunki sa puste!', socketId);
                 } else {
-                    for (const item of allItems) {
-                        let itemInfo = `[Slot ${item.slot}] ${item.name} x${item.count}`;
+                    for (const [key, itemData] of itemsMap) {
+                        let itemInfo = `${itemData.name} x${itemData.count}`;
                         
-                        if (item.nbt && item.nbt.value && item.nbt.value.Enchantments) {
-                            const enchants = item.nbt.value.Enchantments.value.value;
-                            if (enchants && enchants.length > 0) {
-                                itemInfo += '\n  Enchanty:';
-                                for (const enchant of enchants) {
-                                    const enchantId = enchant.id.value;
-                                    const enchantLvl = enchant.lvl.value;
-                                    itemInfo += `\n    - ${enchantId} (Poziom ${enchantLvl})`;
-                                }
+                        if (itemData.enchants && itemData.enchants.length > 0) {
+                            itemInfo += '\n  Enchanty:';
+                            for (const enchant of itemData.enchants) {
+                                const enchantId = enchant.id.value;
+                                const enchantLvl = enchant.lvl.value;
+                                itemInfo += `\n    - ${enchantId} (Poziom ${enchantLvl})`;
                             }
                         }
                         
