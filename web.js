@@ -19,6 +19,9 @@ class BotManager {
         this.bots = {};
         this.activeBots = {};
         this.logsModes = {};
+        this.reconnectFlags = {};
+        this.spawnFlags = {};
+        this.firstSpawn = {};
         
         if (!fs.existsSync(this.botsDir)) {
             fs.mkdirSync(this.botsDir);
@@ -49,6 +52,34 @@ class BotManager {
     saveBot(botData) {
         const filePath = path.join(this.botsDir, `${botData.name}.json`);
         fs.writeFileSync(filePath, JSON.stringify(botData, null, 2));
+    }
+    
+    parseFlags(args) {
+        const flags = {};
+        let currentFlag = null;
+        let currentValue = [];
+        
+        for (let i = 0; i < args.length; i++) {
+            const arg = args[i];
+            
+            if (arg.startsWith('-')) {
+                if (currentFlag) {
+                    flags[currentFlag] = currentValue.join(' ');
+                }
+                currentFlag = arg;
+                currentValue = [];
+            } else {
+                if (currentFlag) {
+                    currentValue.push(arg);
+                }
+            }
+        }
+        
+        if (currentFlag) {
+            flags[currentFlag] = currentValue.join(' ');
+        }
+        
+        return flags;
     }
     
     createBot(name, server, version) {
@@ -85,7 +116,7 @@ class BotManager {
         return true;
     }
     
-    startBot(name) {
+    startBot(name, flags = {}) {
         if (!this.bots[name]) {
             this.log(`Bot '${name}' nie istnieje!`);
             return false;
@@ -97,61 +128,177 @@ class BotManager {
         }
         
         const botData = this.bots[name];
+        const shouldReconnect = flags.hasOwnProperty('-r');
         
-        try {
-            const bot = mineflayer.createBot({
-                host: botData.host,
-                port: botData.port,
-                username: name,
-                version: botData.version,
-                hideErrors: true
-            });
-            
-            this.activeBots[name] = bot;
-            
-            bot.on('login', () => {
-                this.log(`[${name}] Bot zalogowany na serwer!`);
-                this.io.emit('botList', this.getBotsList());
-            });
-            
-            bot.on('spawn', () => {
-                this.log(`[${name}] Bot zespawnowany w grze!`);
-            });
-            
-            bot.on('kicked', (reason) => {
-                this.log(`[${name}] Wyrzucono z serwera: ${reason}`);
-                delete this.activeBots[name];
-                this.io.emit('botList', this.getBotsList());
-            });
-            
-            bot.on('end', () => {
-                this.log(`[${name}] Polaczenie zakonczone`);
-                delete this.activeBots[name];
-                this.io.emit('botList', this.getBotsList());
-            });
-            
-            bot.on('error', (err) => {
-                if (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT' || err.code === 'ECONNREFUSED') {
-                    return;
-                }
-                this.log(`[${name}] ERROR: ${err.message}`);
-            });
-            
-            bot.on('messagestr', (message) => {
-                for (const socketId in this.logsModes) {
-                    if (this.logsModes[socketId] === name) {
-                        this.log(`[SERVER] ${message}`, socketId);
+        this.reconnectFlags[name] = shouldReconnect ? flags : null;
+        this.spawnFlags[name] = flags;
+        this.firstSpawn[name] = true;
+        
+        const createBotInstance = () => {
+            try {
+                const bot = mineflayer.createBot({
+                    host: botData.host,
+                    port: botData.port,
+                    username: name,
+                    version: botData.version,
+                    hideErrors: true
+                });
+                
+                this.activeBots[name] = bot;
+                
+                bot.on('login', () => {
+                    this.log(`[${name}] Bot zalogowany na serwer!`);
+                    this.io.emit('botList', this.getBotsList());
+                    
+                    if (this.firstSpawn[name]) {
+                        const currentFlags = this.spawnFlags[name] || flags;
+                        
+                        if (currentFlags['-js']) {
+                            setTimeout(() => {
+                                bot.chat(currentFlags['-js']);
+                                this.log(`[${name}] Wyslano wiadomosc logowania: ${currentFlags['-js']}`);
+                            }, 1000);
+                        }
                     }
-                }
-            });
-            
-            this.log(`Uruchomiono bota: ${name}`);
-            this.io.emit('botList', this.getBotsList());
-            return true;
-        } catch (err) {
-            this.log(`Blad podczas uruchamiania bota: ${err.message}`);
-            return false;
-        }
+                });
+                
+                bot.on('spawn', () => {
+                    this.log(`[${name}] Bot zespawnowany w grze!`);
+                    
+                    if (!this.firstSpawn[name]) {
+                        return;
+                    }
+                    
+                    this.firstSpawn[name] = false;
+                    
+                    const currentFlags = this.spawnFlags[name] || flags;
+                    
+                    if (currentFlags.hasOwnProperty('-j')) {
+                        const jumpInterval = setInterval(() => {
+                            if (this.activeBots[name] && bot.entity) {
+                                bot.setControlState('jump', true);
+                                setTimeout(() => {
+                                    if (this.activeBots[name]) {
+                                        bot.setControlState('jump', false);
+                                    }
+                                }, 100);
+                            } else {
+                                clearInterval(jumpInterval);
+                            }
+                        }, 1000);
+                        
+                        bot.jumpInterval = jumpInterval;
+                        this.log(`[${name}] Anti-AFK jump wlaczony`);
+                    }
+                    
+                    const sequenceFlags = [];
+                    const flagOrder = ['-ss', '-rc', '-lc', '-gc'];
+                    
+                    for (const flag of flagOrder) {
+                        if (currentFlags[flag] !== undefined) {
+                            sequenceFlags.push(flag);
+                        }
+                    }
+                    
+                    let delay = 5000;
+                    
+                    for (const flag of sequenceFlags) {
+                        if (flag === '-ss') {
+                            const slot = parseInt(currentFlags['-ss']);
+                            if (!isNaN(slot) && slot >= 0 && slot <= 8) {
+                                setTimeout(() => {
+                                    bot.setQuickBarSlot(slot);
+                                    this.log(`[${name}] Ustawiono slot: ${slot}`);
+                                }, delay);
+                                delay += 5000;
+                            }
+                        } else if (flag === '-rc') {
+                            setTimeout(() => {
+                                bot.activateItem();
+                                this.log(`[${name}] Kliknieto prawy przycisk myszy`);
+                            }, delay);
+                            delay += 5000;
+                        } else if (flag === '-lc') {
+                            setTimeout(() => {
+                                bot.swingArm();
+                                this.log(`[${name}] Kliknieto lewy przycisk myszy`);
+                            }, delay);
+                            delay += 5000;
+                        } else if (flag === '-gc') {
+                            const guiSlot = parseInt(currentFlags['-gc']);
+                            if (!isNaN(guiSlot) && guiSlot >= 0 && guiSlot <= 53) {
+                                setTimeout(() => {
+                                    const window = bot.currentWindow;
+                                    if (window) {
+                                        bot.clickWindow(guiSlot, 0, 0);
+                                        this.log(`[${name}] Kliknieto slot GUI: ${guiSlot}`);
+                                    } else {
+                                        this.log(`[${name}] Brak otwartego GUI`);
+                                    }
+                                }, delay);
+                                delay += 5000;
+                            }
+                        }
+                    }
+                });
+                
+                bot.on('kicked', (reason) => {
+                    this.log(`[${name}] Wyrzucono z serwera: ${reason}`);
+                    delete this.activeBots[name];
+                    this.io.emit('botList', this.getBotsList());
+                    
+                    if (this.reconnectFlags[name]) {
+                        this.log(`[${name}] Ponowne laczenie za 5 sekund...`);
+                        setTimeout(() => {
+                            if (!this.activeBots[name] && this.reconnectFlags[name]) {
+                                this.firstSpawn[name] = true;
+                                createBotInstance();
+                            }
+                        }, 5000);
+                    }
+                });
+                
+                bot.on('end', () => {
+                    this.log(`[${name}] Polaczenie zakonczone`);
+                    delete this.activeBots[name];
+                    this.io.emit('botList', this.getBotsList());
+                    
+                    if (this.reconnectFlags[name]) {
+                        this.log(`[${name}] Ponowne laczenie za 5 sekund...`);
+                        setTimeout(() => {
+                            if (!this.activeBots[name] && this.reconnectFlags[name]) {
+                                this.firstSpawn[name] = true;
+                                createBotInstance();
+                            }
+                        }, 5000);
+                    }
+                });
+                
+                bot.on('error', (err) => {
+                    if (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT' || err.code === 'ECONNREFUSED') {
+                        return;
+                    }
+                    this.log(`[${name}] ERROR: ${err.message}`);
+                });
+                
+                bot.on('messagestr', (message) => {
+                    for (const socketId in this.logsModes) {
+                        if (this.logsModes[socketId] === name) {
+                            this.log(`[SERVER] ${message}`, socketId);
+                        }
+                    }
+                });
+                
+                this.log(`Uruchomiono bota: ${name}`);
+                this.io.emit('botList', this.getBotsList());
+                return true;
+            } catch (err) {
+                this.log(`Blad podczas uruchamiania bota: ${err.message}`);
+                return false;
+            }
+        };
+        
+        return createBotInstance();
     }
     
     stopBot(name) {
@@ -160,7 +307,15 @@ class BotManager {
             return false;
         }
         
-        this.activeBots[name].quit();
+        const bot = this.activeBots[name];
+        if (bot.jumpInterval) {
+            clearInterval(bot.jumpInterval);
+        }
+        
+        delete this.reconnectFlags[name];
+        delete this.spawnFlags[name];
+        delete this.firstSpawn[name];
+        bot.quit();
         delete this.activeBots[name];
         this.log(`Zatrzymano bota: ${name}`);
         this.io.emit('botList', this.getBotsList());
@@ -176,6 +331,10 @@ class BotManager {
         if (this.activeBots[name]) {
             this.stopBot(name);
         }
+        
+        delete this.reconnectFlags[name];
+        delete this.spawnFlags[name];
+        delete this.firstSpawn[name];
         
         const jsonPath = path.join(this.botsDir, `${name}.json`);
         if (fs.existsSync(jsonPath)) {
@@ -278,10 +437,23 @@ io.on('connection', (socket) => {
                 manager.createBot(parts[1], parts[2], parts[3]);
             }
         } else if (cmd === 'start') {
-            if (parts.length !== 2) {
-                socket.emit('log', 'Uzycie: start <nazwa>');
+            if (parts.length < 2) {
+                socket.emit('log', 'Uzycie: start <nazwa> [flagi]');
+                socket.emit('log', 'Dostepne flagi:');
+                socket.emit('log', '  -js <wiadomosc> - Wiadomosc po dolaczeniu do serwera (1s)');
+                socket.emit('log', '  -r - Automatyczne ponowne laczenie');
+                socket.emit('log', '  -j - Anti-AFK jump (ciagle skakanie)');
+                socket.emit('log', '');
+                socket.emit('log', 'Flagi kolejnosciowe (po 5s kazda):');
+                socket.emit('log', '  -ss <0-8> - Ustawienie slotu (hotbar)');
+                socket.emit('log', '  -rc - Klikniecie prawym przyciskiem myszy');
+                socket.emit('log', '  -lc - Klikniecie lewym przyciskiem myszy');
+                socket.emit('log', '  -gc <0-53> - Klikniecie slotu w GUI');
             } else {
-                manager.startBot(parts[1]);
+                const botName = parts[1];
+                const flagArgs = parts.slice(2);
+                const flags = manager.parseFlags(flagArgs);
+                manager.startBot(botName, flags);
             }
         } else if (cmd === 'stop') {
             if (parts.length !== 2) {
@@ -317,13 +489,24 @@ io.on('connection', (socket) => {
         } else if (cmd === 'help') {
             socket.emit('log', 'Komendy:');
             socket.emit('log', '  create <nazwa> <ip[:port]> <wersja>');
-            socket.emit('log', '  start <nazwa>');
+            socket.emit('log', '  start <nazwa> [flagi]');
             socket.emit('log', '  stop <nazwa>');
             socket.emit('log', '  delete <nazwa>');
             socket.emit('log', '  logs <nazwa>');
             socket.emit('log', '  list');
             socket.emit('log', '  clear');
             socket.emit('log', '  help');
+            socket.emit('log', '');
+            socket.emit('log', 'Flagi startu:');
+            socket.emit('log', '  -js <wiadomosc> - Wiadomosc po dolaczeniu (1s)');
+            socket.emit('log', '  -r - Automatyczne ponowne laczenie');
+            socket.emit('log', '  -j - Anti-AFK jump (ciagle skakanie)');
+            socket.emit('log', '');
+            socket.emit('log', 'Flagi kolejnosciowe (po 5s kazda):');
+            socket.emit('log', '  -ss <0-8> - Ustawienie slotu (hotbar)');
+            socket.emit('log', '  -rc - Klikniecie prawym przyciskiem myszy');
+            socket.emit('log', '  -lc - Klikniecie lewym przyciskiem myszy');
+            socket.emit('log', '  -gc <0-53> - Klikniecie slotu w GUI');
         } else {
             socket.emit('log', 'Nieznana komenda!');
         }

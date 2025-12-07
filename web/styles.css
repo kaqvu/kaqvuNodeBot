@@ -1,251 +1,251 @@
- {
-    margin 0;
-    padding 0;
-    box-sizing border-box;
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
 }
 
 body {
-    font-family 'Courier New', monospace;
-    background #1e1e1e;
-    color #d4d4d4;
-    height 100vh;
-    display flex;
-    flex-direction column;
+    font-family: 'Courier New', monospace;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
 }
 
 .header {
-    background #252526;
-    padding 15px 20px;
-    border-bottom 2px solid #007acc;
+    background: #252526;
+    padding: 15px 20px;
+    border-bottom: 2px solid #007acc;
 }
 
 .header h1 {
-    color #007acc;
-    font-size 24px;
+    color: #007acc;
+    font-size: 24px;
 }
 
 .main-container {
-    display flex;
-    flex 1;
-    overflow hidden;
+    display: flex;
+    flex: 1;
+    overflow: hidden;
 }
 
 .sidebar {
-    width 300px;
-    background #252526;
-    border-right 1px solid #3e3e42;
-    padding 20px;
-    overflow-y auto;
+    width: 300px;
+    background: #252526;
+    border-right: 1px solid #3e3e42;
+    padding: 20px;
+    overflow-y: auto;
 }
 
 .sidebar h2 {
-    color #007acc;
-    margin-bottom 15px;
-    font-size 18px;
+    color: #007acc;
+    margin-bottom: 15px;
+    font-size: 18px;
 }
 
 .bot-item {
-    background #2d2d30;
-    padding 10px;
-    margin-bottom 10px;
-    border-radius 4px;
-    border-left 3px solid #007acc;
+    background: #2d2d30;
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 4px;
+    border-left: 3px solid #007acc;
 }
 
 .bot-item.active {
-    border-left-color #4ec9b0;
+    border-left-color: #4ec9b0;
 }
 
 .bot-name {
-    font-weight bold;
-    color #dcdcaa;
+    font-weight: bold;
+    color: #dcdcaa;
 }
 
 .bot-status {
-    font-size 12px;
-    color #858585;
-    margin-top 5px;
+    font-size: 12px;
+    color: #858585;
+    margin-top: 5px;
 }
 
 .bot-status.active {
-    color #4ec9b0;
+    color: #4ec9b0;
 }
 
 .content {
-    flex 1;
-    display flex;
-    flex-direction column;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
 }
 
 .console {
-    flex 1;
-    background #1e1e1e;
-    padding 20px;
-    overflow-y auto;
-    font-family 'Courier New', monospace;
-    font-size 14px;
+    flex: 1;
+    background: #1e1e1e;
+    padding: 20px;
+    overflow-y: auto;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
 }
 
 .console-line {
-    margin-bottom 5px;
-    line-height 1.5;
+    margin-bottom: 5px;
+    line-height: 1.5;
 }
 
 .input-container {
-    background #252526;
-    padding 15px 20px;
-    border-top 1px solid #3e3e42;
-    display flex;
-    gap 10px;
+    background: #252526;
+    padding: 15px 20px;
+    border-top: 1px solid #3e3e42;
+    display: flex;
+    gap: 10px;
 }
 
 .input-wrapper {
-    flex 1;
-    display flex;
-    align-items center;
-    background #3c3c3c;
-    border-radius 4px;
-    padding 0 10px;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    background: #3c3c3c;
+    border-radius: 4px;
+    padding: 0 10px;
 }
 
 .prompt {
-    color #4ec9b0;
-    margin-right 10px;
-    font-weight bold;
+    color: #4ec9b0;
+    margin-right: 10px;
+    font-weight: bold;
 }
 
 #commandInput {
-    flex 1;
-    background transparent;
-    border none;
-    color #d4d4d4;
-    font-family 'Courier New', monospace;
-    font-size 14px;
-    padding 10px 0;
-    outline none;
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: #d4d4d4;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    padding: 10px 0;
+    outline: none;
 }
 
 button {
-    background #007acc;
-    color white;
-    border none;
-    padding 10px 20px;
-    border-radius 4px;
-    cursor pointer;
-    font-family 'Courier New', monospace;
-    font-size 14px;
-    transition background 0.2s;
+    background: #007acc;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    transition: background 0.2s;
 }
 
-buttonhover {
-    background #005a9e;
+button:hover {
+    background: #005a9e;
 }
 
 .help-text {
-    color #858585;
-    font-size 12px;
-    margin-top 10px;
+    color: #858585;
+    font-size: 12px;
+    margin-top: 10px;
 }
 
--webkit-scrollbar {
-    width 10px;
+::-webkit-scrollbar {
+    width: 10px;
 }
 
--webkit-scrollbar-track {
-    background #1e1e1e;
+::-webkit-scrollbar-track {
+    background: #1e1e1e;
 }
 
--webkit-scrollbar-thumb {
-    background #3e3e42;
-    border-radius 5px;
+::-webkit-scrollbar-thumb {
+    background: #3e3e42;
+    border-radius: 5px;
 }
 
--webkit-scrollbar-thumbhover {
-    background #4e4e52;
+::-webkit-scrollbar-thumb:hover {
+    background: #4e4e52;
 }
 
-@media (max-width 768px) {
+@media (max-width: 768px) {
     .main-container {
-        flex-direction column;
+        flex-direction: column;
     }
     
     .sidebar {
-        width 100%;
-        max-height 40vh;
-        border-right none;
-        border-bottom 1px solid #3e3e42;
+        width: 100%;
+        max-height: 40vh;
+        border-right: none;
+        border-bottom: 1px solid #3e3e42;
     }
     
     .header h1 {
-        font-size 18px;
+        font-size: 18px;
     }
     
     .console {
-        font-size 12px;
-        padding 10px;
+        font-size: 12px;
+        padding: 10px;
     }
     
     .input-container {
-        padding 10px;
-        flex-wrap wrap;
+        padding: 10px;
+        flex-wrap: wrap;
     }
     
     button {
-        padding 8px 15px;
-        font-size 12px;
+        padding: 8px 15px;
+        font-size: 12px;
     }
     
     #commandInput {
-        font-size 12px;
+        font-size: 12px;
     }
     
     .help-text {
-        font-size 11px;
+        font-size: 11px;
     }
     
     .bot-item {
-        padding 8px;
+        padding: 8px;
     }
 }
 
-@media (max-width 480px) {
+@media (max-width: 480px) {
     .header {
-        padding 10px 15px;
+        padding: 10px 15px;
     }
     
     .header h1 {
-        font-size 16px;
+        font-size: 16px;
     }
     
     .sidebar {
-        padding 15px;
-        max-height 35vh;
+        padding: 15px;
+        max-height: 35vh;
     }
     
     .sidebar h2 {
-        font-size 16px;
+        font-size: 16px;
     }
     
     .console {
-        font-size 11px;
-        padding 8px;
+        font-size: 11px;
+        padding: 8px;
     }
     
     .input-container {
-        padding 8px;
-        gap 8px;
+        padding: 8px;
+        gap: 8px;
     }
     
     .input-wrapper {
-        padding 0 8px;
+        padding: 0 8px;
     }
     
     button {
-        width 100%;
-        padding 10px;
+        width: 100%;
+        padding: 10px;
     }
     
     .prompt {
-        font-size 12px;
+        font-size: 12px;
     }
 }

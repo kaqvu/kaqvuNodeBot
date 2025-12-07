@@ -4,9 +4,8 @@
   "description": "System zarzadzania botami Minecraft",
   "main": "server.js",
   "scripts": {
-    "start": "node start.js",
+    "start": "node web.js",
     "web": "node web.js",
-    "cmd": "node cmd.js"
   },
   "keywords": [
     "minecraft",
