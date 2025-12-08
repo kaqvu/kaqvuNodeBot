@@ -553,5 +553,5 @@ Ten projekt jest licencjonowany na licencji MIT - zobacz plik [LICENSE](LICENSE)
 
 ---
 
-**Ostatnia aktualizacja:** Grudzień 2024  
+**Ostatnia aktualizacja:** Grudzień 2025 
 **Wersja:** 3.12
