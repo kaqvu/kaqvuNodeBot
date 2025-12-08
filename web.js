@@ -329,8 +329,9 @@ class BotManager {
                 
                 bot.on('messagestr', (message) => {
                     for (const socketId in this.logsModes) {
-                        if (this.logsModes[socketId] === name) {
-                            this.log(`[SERVER] ${message}`, socketId);
+                        const mode = this.logsModes[socketId];
+                        if (mode === name || mode === '*') {
+                            this.log(`[${name}] ${message}`, socketId);
                         }
                     }
                 });
@@ -405,6 +406,24 @@ class BotManager {
     }
     
     enterLogs(socketId, botName) {
+        if (botName === '*') {
+            const activeBots = Object.keys(this.activeBots);
+            if (activeBots.length === 0) {
+                this.log(`Brak aktywnych botow!`, socketId);
+                return false;
+            }
+            
+            this.logsModes[socketId] = '*';
+            this.log(`\n${'='.repeat(50)}`, socketId);
+            this.log(`LOGI WSZYSTKICH BOTOW (${activeBots.length})`, socketId);
+            this.log(`Wpisz '.exit' aby wyjsc z logow`, socketId);
+            this.log(`Wpisz '.listitems' aby zobaczyc ekwipunek`, socketId);
+            this.log(`Wpisz wiadomosc aby wyslac na chat wszystkich botow`, socketId);
+            this.log(`${'='.repeat(50)}\n`, socketId);
+            this.io.to(socketId).emit('logsMode', true);
+            return true;
+        }
+        
         if (!this.activeBots[botName]) {
             this.log(`Bot '${botName}' nie jest uruchomiony!`, socketId);
             return false;
@@ -425,7 +444,11 @@ class BotManager {
         const botName = this.logsModes[socketId];
         if (botName) {
             delete this.logsModes[socketId];
-            this.log(`\nWychodzenie z logow bota ${botName}...\n`, socketId);
+            if (botName === '*') {
+                this.log(`\nWychodzenie z logow wszystkich botow...\n`, socketId);
+            } else {
+                this.log(`\nWychodzenie z logow bota ${botName}...\n`, socketId);
+            }
         }
         this.io.to(socketId).emit('logsMode', false);
     }
@@ -434,6 +457,29 @@ class BotManager {
         const botName = this.logsModes[socketId];
         if (!botName) {
             return false;
+        }
+        
+        if (botName === '*') {
+            const activeBots = Object.keys(this.activeBots);
+            let sent = 0;
+            
+            for (const name of activeBots) {
+                try {
+                    this.activeBots[name].chat(message);
+                    sent++;
+                } catch (err) {
+                    this.log(`[${name}] [ERROR] Nie mozna wyslac: ${err.message}`, socketId);
+                }
+            }
+            
+            if (sent > 0) {
+                if (message.startsWith('/')) {
+                    this.log(`[CMD -> ${sent} botow] ${message}`, socketId);
+                } else {
+                    this.log(`[SEND -> ${sent} botow] ${message}`, socketId);
+                }
+            }
+            return sent > 0;
         }
         
         if (!this.activeBots[botName]) {
@@ -459,6 +505,50 @@ class BotManager {
         const botName = this.logsModes[socketId];
         if (!botName) {
             return false;
+        }
+        
+        if (botName === '*') {
+            const activeBots = Object.keys(this.activeBots);
+            
+            if (activeBots.length === 0) {
+                this.log('Brak aktywnych botow!', socketId);
+                return false;
+            }
+            
+            for (const name of activeBots) {
+                const bot = this.activeBots[name];
+                const items = bot.inventory.items();
+                
+                this.log(`\n${'='.repeat(50)}`, socketId);
+                this.log(`EKWIPUNEK BOTA: ${name}`, socketId);
+                this.log(`${'='.repeat(50)}`, socketId);
+                
+                if (items.length === 0) {
+                    this.log('Ekwipunek jest pusty!', socketId);
+                } else {
+                    for (const item of items) {
+                        let itemInfo = `[Slot ${item.slot}] ${item.name} x${item.count}`;
+                        
+                        if (item.nbt && item.nbt.value && item.nbt.value.Enchantments) {
+                            const enchants = item.nbt.value.Enchantments.value.value;
+                            if (enchants && enchants.length > 0) {
+                                itemInfo += '\n  Enchanty:';
+                                for (const enchant of enchants) {
+                                    const enchantId = enchant.id.value;
+                                    const enchantLvl = enchant.lvl.value;
+                                    itemInfo += `\n    - ${enchantId} (Poziom ${enchantLvl})`;
+                                }
+                            }
+                        }
+                        
+                        this.log(itemInfo, socketId);
+                    }
+                }
+                
+                this.log(`${'='.repeat(50)}\n`, socketId);
+            }
+            
+            return true;
         }
         
         if (!this.activeBots[botName]) {
@@ -761,7 +851,7 @@ io.on('connection', (socket) => {
             }
         } else if (cmd === 'logs') {
             if (parts.length !== 2) {
-                socket.emit('log', 'Uzycie: logs <nazwa>');
+                socket.emit('log', 'Uzycie: logs <nazwa|*>');
             } else {
                 manager.enterLogs(socket.id, parts[1]);
             }

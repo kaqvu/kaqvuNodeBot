@@ -1,6 +1,6 @@
 {
   "name": "kaqvuNodeBot",
-  "version": "1.9",
+  "version": "3.12",
   "description": "AFK Minecraft Bots managment",
   "main": "server.js",
   "scripts": {
