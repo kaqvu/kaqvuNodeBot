@@ -6,6 +6,23 @@ const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 
+const {
+    setupBotHandlers,
+    enterLogs,
+    exitLogs,
+    sendMessage,
+    listItems,
+    listItemsCommand,
+    executeLoopUse,
+    executeWalk,
+    executeDropItem,
+    executeLook,
+    executeSetSlot,
+    executeRightClick,
+    executeLeftClick,
+    executeGuiClick
+} = require('./web-functions');
+
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
@@ -20,6 +37,7 @@ class BotManager {
         this.activeBots = {};
         this.logsModes = {};
         this.reconnectFlags = {};
+        this.reconnectAttempts = {};
         this.spawnFlags = {};
         this.firstSpawn = {};
         this.availableNames = [];
@@ -173,10 +191,23 @@ class BotManager {
             return false;
         }
         
-        const botData = this.bots[name];
-        const shouldReconnect = flags.hasOwnProperty('-r');
+        const validFlags = ['-joinsend', '-reconnect', '-maxreconnect', '-jumpafk', '-sneakafk', '-delayflag', '-setslot', '-rightclick', '-leftclick', '-guiclick'];
         
-        this.reconnectFlags[name] = shouldReconnect ? flags : null;
+        for (const flag of Object.keys(flags)) {
+            const baseFlag = flag.split(':')[0];
+            if (!validFlags.includes(baseFlag)) {
+                this.log(`Nieznana flaga: ${flag}`);
+                this.log(`Dostepne flagi: ${validFlags.join(', ')}`);
+                return false;
+            }
+        }
+        
+        const botData = this.bots[name];
+        const shouldReconnect = flags.hasOwnProperty('-reconnect');
+        const maxReconnects = flags['-maxreconnect'] ? parseInt(flags['-maxreconnect']) : 999;
+        
+        this.reconnectFlags[name] = shouldReconnect ? { flags, maxReconnects } : null;
+        this.reconnectAttempts[name] = 0;
         this.spawnFlags[name] = flags;
         this.firstSpawn[name] = true;
         
@@ -191,150 +222,7 @@ class BotManager {
                 });
                 
                 this.activeBots[name] = bot;
-                
-                bot.on('login', () => {
-                    this.log(`[${name}] Bot zalogowany na serwer!`);
-                    this.io.emit('botList', this.getBotsList());
-                    
-                    if (this.firstSpawn[name]) {
-                        const currentFlags = this.spawnFlags[name] || flags;
-                        
-                        if (currentFlags['-js']) {
-                            setTimeout(() => {
-                                bot.chat(currentFlags['-js']);
-                                this.log(`[${name}] Wyslano wiadomosc logowania: ${currentFlags['-js']}`);
-                            }, 1000);
-                        }
-                    }
-                });
-                
-                bot.on('spawn', () => {
-                    this.log(`[${name}] Bot zespawnowany w grze!`);
-                    
-                    if (!this.firstSpawn[name]) {
-                        return;
-                    }
-                    
-                    this.firstSpawn[name] = false;
-                    
-                    const currentFlags = this.spawnFlags[name] || flags;
-                    
-                    if (currentFlags.hasOwnProperty('-j')) {
-                        const jumpInterval = setInterval(() => {
-                            if (this.activeBots[name] && bot.entity) {
-                                bot.setControlState('jump', true);
-                                setTimeout(() => {
-                                    if (this.activeBots[name]) {
-                                        bot.setControlState('jump', false);
-                                    }
-                                }, 100);
-                            } else {
-                                clearInterval(jumpInterval);
-                            }
-                        }, 1000);
-                        
-                        bot.jumpInterval = jumpInterval;
-                        this.log(`[${name}] Anti-AFK jump wlaczony`);
-                    }
-                    
-                    const sequenceFlags = [];
-                    const flagOrder = ['-ss', '-rc', '-lc', '-gc'];
-                    
-                    for (const flag of flagOrder) {
-                        if (currentFlags[flag] !== undefined) {
-                            sequenceFlags.push(flag);
-                        }
-                    }
-                    
-                    let delay = 5000;
-                    
-                    for (const flag of sequenceFlags) {
-                        if (flag === '-ss') {
-                            const slot = parseInt(currentFlags['-ss']);
-                            if (!isNaN(slot) && slot >= 0 && slot <= 8) {
-                                setTimeout(() => {
-                                    bot.setQuickBarSlot(slot);
-                                    this.log(`[${name}] Ustawiono slot: ${slot}`);
-                                }, delay);
-                                delay += 5000;
-                            }
-                        } else if (flag === '-rc') {
-                            setTimeout(() => {
-                                bot.activateItem();
-                                this.log(`[${name}] Kliknieto prawy przycisk myszy`);
-                            }, delay);
-                            delay += 5000;
-                        } else if (flag === '-lc') {
-                            setTimeout(() => {
-                                bot.swingArm();
-                                this.log(`[${name}] Kliknieto lewy przycisk myszy`);
-                            }, delay);
-                            delay += 5000;
-                        } else if (flag === '-gc') {
-                            const guiSlot = parseInt(currentFlags['-gc']);
-                            if (!isNaN(guiSlot) && guiSlot >= 0 && guiSlot <= 53) {
-                                setTimeout(() => {
-                                    const window = bot.currentWindow;
-                                    if (window) {
-                                        bot.clickWindow(guiSlot, 0, 0);
-                                        this.log(`[${name}] Kliknieto slot GUI: ${guiSlot}`);
-                                    } else {
-                                        this.log(`[${name}] Brak otwartego GUI`);
-                                    }
-                                }, delay);
-                                delay += 5000;
-                            }
-                        }
-                    }
-                });
-                
-                bot.on('kicked', (reason) => {
-                    this.log(`[${name}] Wyrzucono z serwera: ${reason}`);
-                    delete this.activeBots[name];
-                    this.io.emit('botList', this.getBotsList());
-                    
-                    if (this.reconnectFlags[name]) {
-                        this.log(`[${name}] Ponowne laczenie za 5 sekund...`);
-                        setTimeout(() => {
-                            if (!this.activeBots[name] && this.reconnectFlags[name]) {
-                                this.firstSpawn[name] = true;
-                                createBotInstance();
-                            }
-                        }, 5000);
-                    }
-                });
-                
-                bot.on('end', () => {
-                    this.log(`[${name}] Polaczenie zakonczone`);
-                    delete this.activeBots[name];
-                    this.io.emit('botList', this.getBotsList());
-                    
-                    if (this.reconnectFlags[name]) {
-                        this.log(`[${name}] Ponowne laczenie za 5 sekund...`);
-                        setTimeout(() => {
-                            if (!this.activeBots[name] && this.reconnectFlags[name]) {
-                                this.firstSpawn[name] = true;
-                                createBotInstance();
-                            }
-                        }, 5000);
-                    }
-                });
-                
-                bot.on('error', (err) => {
-                    if (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT' || err.code === 'ECONNREFUSED') {
-                        return;
-                    }
-                    this.log(`[${name}] ERROR: ${err.message}`);
-                });
-                
-                bot.on('messagestr', (message) => {
-                    for (const socketId in this.logsModes) {
-                        const mode = this.logsModes[socketId];
-                        if (mode === name || mode === '*') {
-                            this.log(`[${name}] ${message}`, socketId);
-                        }
-                    }
-                });
+                setupBotHandlers(this, bot, name, flags);
                 
                 this.log(`Uruchomiono bota: ${name}`);
                 this.io.emit('botList', this.getBotsList());
@@ -358,8 +246,15 @@ class BotManager {
         if (bot.jumpInterval) {
             clearInterval(bot.jumpInterval);
         }
+        if (bot.useInterval) {
+            clearInterval(bot.useInterval);
+        }
+        if (bot.walkInterval) {
+            clearInterval(bot.walkInterval);
+        }
         
         delete this.reconnectFlags[name];
+        delete this.reconnectAttempts[name];
         delete this.spawnFlags[name];
         delete this.firstSpawn[name];
         bot.quit();
@@ -380,6 +275,7 @@ class BotManager {
         }
         
         delete this.reconnectFlags[name];
+        delete this.reconnectAttempts[name];
         delete this.spawnFlags[name];
         delete this.firstSpawn[name];
         
@@ -406,335 +302,55 @@ class BotManager {
     }
     
     enterLogs(socketId, botName) {
-        if (botName === '*') {
-            const activeBots = Object.keys(this.activeBots);
-            if (activeBots.length === 0) {
-                this.log(`Brak aktywnych botow!`, socketId);
-                return false;
-            }
-            
-            this.logsModes[socketId] = '*';
-            this.log(`\n${'='.repeat(50)}`, socketId);
-            this.log(`LOGI WSZYSTKICH BOTOW (${activeBots.length})`, socketId);
-            this.log(`Wpisz '.exit' aby wyjsc z logow`, socketId);
-            this.log(`Wpisz '.listitems' aby zobaczyc ekwipunek`, socketId);
-            this.log(`Wpisz wiadomosc aby wyslac na chat wszystkich botow`, socketId);
-            this.log(`${'='.repeat(50)}\n`, socketId);
-            this.io.to(socketId).emit('logsMode', true);
-            return true;
-        }
-        
-        if (!this.activeBots[botName]) {
-            this.log(`Bot '${botName}' nie jest uruchomiony!`, socketId);
-            return false;
-        }
-        
-        this.logsModes[socketId] = botName;
-        this.log(`\n${'='.repeat(50)}`, socketId);
-        this.log(`LOGI BOTA: ${botName}`, socketId);
-        this.log(`Wpisz '.exit' aby wyjsc z logow`, socketId);
-        this.log(`Wpisz '.listitems' aby zobaczyc ekwipunek`, socketId);
-        this.log(`Wpisz wiadomosc aby wyslac na chat`, socketId);
-        this.log(`${'='.repeat(50)}\n`, socketId);
-        this.io.to(socketId).emit('logsMode', true);
-        return true;
+        return enterLogs(this, socketId, botName);
     }
     
     exitLogs(socketId) {
-        const botName = this.logsModes[socketId];
-        if (botName) {
-            delete this.logsModes[socketId];
-            if (botName === '*') {
-                this.log(`\nWychodzenie z logow wszystkich botow...\n`, socketId);
-            } else {
-                this.log(`\nWychodzenie z logow bota ${botName}...\n`, socketId);
-            }
-        }
-        this.io.to(socketId).emit('logsMode', false);
+        return exitLogs(this, socketId);
     }
     
     sendMessage(socketId, message) {
-        const botName = this.logsModes[socketId];
-        if (!botName) {
-            return false;
-        }
-        
-        if (botName === '*') {
-            const activeBots = Object.keys(this.activeBots);
-            let sent = 0;
-            
-            for (const name of activeBots) {
-                try {
-                    this.activeBots[name].chat(message);
-                    sent++;
-                } catch (err) {
-                    this.log(`[${name}] [ERROR] Nie mozna wyslac: ${err.message}`, socketId);
-                }
-            }
-            
-            if (sent > 0) {
-                if (message.startsWith('/')) {
-                    this.log(`[CMD -> ${sent} botow] ${message}`, socketId);
-                } else {
-                    this.log(`[SEND -> ${sent} botow] ${message}`, socketId);
-                }
-            }
-            return sent > 0;
-        }
-        
-        if (!this.activeBots[botName]) {
-            this.log(`Bot '${botName}' nie jest uruchomiony!`, socketId);
-            return false;
-        }
-        
-        try {
-            this.activeBots[botName].chat(message);
-            if (message.startsWith('/')) {
-                this.log(`[CMD] ${message}`, socketId);
-            } else {
-                this.log(`[SEND] ${message}`, socketId);
-            }
-            return true;
-        } catch (err) {
-            this.log(`[ERROR] Nie mozna wyslac: ${err.message}`, socketId);
-            return false;
-        }
+        return sendMessage(this, socketId, message);
     }
     
     listItems(socketId) {
-        const botName = this.logsModes[socketId];
-        if (!botName) {
-            return false;
-        }
-        
-        if (botName === '*') {
-            const activeBots = Object.keys(this.activeBots);
-            
-            if (activeBots.length === 0) {
-                this.log('Brak aktywnych botow!', socketId);
-                return false;
-            }
-            
-            for (const name of activeBots) {
-                const bot = this.activeBots[name];
-                const items = bot.inventory.items();
-                
-                this.log(`\n${'='.repeat(50)}`, socketId);
-                this.log(`EKWIPUNEK BOTA: ${name}`, socketId);
-                this.log(`${'='.repeat(50)}`, socketId);
-                
-                if (items.length === 0) {
-                    this.log('Ekwipunek jest pusty!', socketId);
-                } else {
-                    for (const item of items) {
-                        let itemInfo = `[Slot ${item.slot}] ${item.name} x${item.count}`;
-                        
-                        if (item.nbt && item.nbt.value && item.nbt.value.Enchantments) {
-                            const enchants = item.nbt.value.Enchantments.value.value;
-                            if (enchants && enchants.length > 0) {
-                                itemInfo += '\n  Enchanty:';
-                                for (const enchant of enchants) {
-                                    const enchantId = enchant.id.value;
-                                    const enchantLvl = enchant.lvl.value;
-                                    itemInfo += `\n    - ${enchantId} (Poziom ${enchantLvl})`;
-                                }
-                            }
-                        }
-                        
-                        this.log(itemInfo, socketId);
-                    }
-                }
-                
-                this.log(`${'='.repeat(50)}\n`, socketId);
-            }
-            
-            return true;
-        }
-        
-        if (!this.activeBots[botName]) {
-            this.log(`Bot '${botName}' nie jest uruchomiony!`, socketId);
-            return false;
-        }
-        
-        const bot = this.activeBots[botName];
-        const items = bot.inventory.items();
-        
-        this.log(`\n${'='.repeat(50)}`, socketId);
-        this.log(`EKWIPUNEK BOTA: ${botName}`, socketId);
-        this.log(`${'='.repeat(50)}`, socketId);
-        
-        if (items.length === 0) {
-            this.log('Ekwipunek jest pusty!', socketId);
-        } else {
-            for (const item of items) {
-                let itemInfo = `[Slot ${item.slot}] ${item.name} x${item.count}`;
-                
-                if (item.nbt && item.nbt.value && item.nbt.value.Enchantments) {
-                    const enchants = item.nbt.value.Enchantments.value.value;
-                    if (enchants && enchants.length > 0) {
-                        itemInfo += '\n  Enchanty:';
-                        for (const enchant of enchants) {
-                            const enchantId = enchant.id.value;
-                            const enchantLvl = enchant.lvl.value;
-                            itemInfo += `\n    - ${enchantId} (Poziom ${enchantLvl})`;
-                        }
-                    }
-                }
-                
-                this.log(itemInfo, socketId);
-            }
-        }
-        
-        this.log(`${'='.repeat(50)}\n`, socketId);
-        return true;
+        return listItems(this, socketId);
     }
     
     listItemsCommand(socketId, botName, together = false) {
-        if (botName === '*') {
-            const activeBotsNames = Object.keys(this.activeBots);
-            
-            if (activeBotsNames.length === 0) {
-                this.log('Brak aktywnych botow!', socketId);
-                return false;
-            }
-            
-            if (together) {
-                const itemsMap = new Map();
-                
-                for (const name of activeBotsNames) {
-                    const bot = this.activeBots[name];
-                    const items = bot.inventory.items();
-                    
-                    for (const item of items) {
-                        const itemKey = item.name;
-                        let enchantKey = '';
-                        
-                        if (item.nbt && item.nbt.value && item.nbt.value.Enchantments) {
-                            const enchants = item.nbt.value.Enchantments.value.value;
-                            if (enchants && enchants.length > 0) {
-                                const enchantStrs = enchants.map(e => `${e.id.value}:${e.lvl.value}`);
-                                enchantKey = enchantStrs.sort().join(',');
-                            }
-                        }
-                        
-                        const fullKey = `${itemKey}|${enchantKey}`;
-                        
-                        if (itemsMap.has(fullKey)) {
-                            itemsMap.get(fullKey).count += item.count;
-                        } else {
-                            itemsMap.set(fullKey, {
-                                name: item.name,
-                                count: item.count,
-                                enchants: item.nbt && item.nbt.value && item.nbt.value.Enchantments ? 
-                                    item.nbt.value.Enchantments.value.value : null
-                            });
-                        }
-                    }
-                }
-                
-                this.log(`\n${'='.repeat(50)}`, socketId);
-                this.log(`EKWIPUNEK WSZYSTKICH BOTOW`, socketId);
-                this.log(`${'='.repeat(50)}`, socketId);
-                
-                if (itemsMap.size === 0) {
-                    this.log('Wszystkie ekwipunki sa puste!', socketId);
-                } else {
-                    for (const [key, itemData] of itemsMap) {
-                        let itemInfo = `${itemData.name} x${itemData.count}`;
-                        
-                        if (itemData.enchants && itemData.enchants.length > 0) {
-                            itemInfo += '\n  Enchanty:';
-                            for (const enchant of itemData.enchants) {
-                                const enchantId = enchant.id.value;
-                                const enchantLvl = enchant.lvl.value;
-                                itemInfo += `\n    - ${enchantId} (Poziom ${enchantLvl})`;
-                            }
-                        }
-                        
-                        this.log(itemInfo, socketId);
-                    }
-                }
-                
-                this.log(`${'='.repeat(50)}\n`, socketId);
-            } else {
-                for (const name of activeBotsNames) {
-                    const bot = this.activeBots[name];
-                    const items = bot.inventory.items();
-                    
-                    this.log(`\n${'='.repeat(50)}`, socketId);
-                    this.log(`EKWIPUNEK BOTA: ${name}`, socketId);
-                    this.log(`${'='.repeat(50)}`, socketId);
-                    
-                    if (items.length === 0) {
-                        this.log('Ekwipunek jest pusty!', socketId);
-                    } else {
-                        for (const item of items) {
-                            let itemInfo = `[Slot ${item.slot}] ${item.name} x${item.count}`;
-                            
-                            if (item.nbt && item.nbt.value && item.nbt.value.Enchantments) {
-                                const enchants = item.nbt.value.Enchantments.value.value;
-                                if (enchants && enchants.length > 0) {
-                                    itemInfo += '\n  Enchanty:';
-                                    for (const enchant of enchants) {
-                                        const enchantId = enchant.id.value;
-                                        const enchantLvl = enchant.lvl.value;
-                                        itemInfo += `\n    - ${enchantId} (Poziom ${enchantLvl})`;
-                                    }
-                                }
-                            }
-                            
-                            this.log(itemInfo, socketId);
-                        }
-                    }
-                    
-                    this.log(`${'='.repeat(50)}\n`, socketId);
-                }
-            }
-            
-            return true;
-        }
-        
-        if (!this.bots[botName]) {
-            this.log(`Bot '${botName}' nie istnieje!`, socketId);
-            return false;
-        }
-        
-        if (!this.activeBots[botName]) {
-            this.log(`Bot '${botName}' nie jest uruchomiony!`, socketId);
-            return false;
-        }
-        
-        const bot = this.activeBots[botName];
-        const items = bot.inventory.items();
-        
-        this.log(`\n${'='.repeat(50)}`, socketId);
-        this.log(`EKWIPUNEK BOTA: ${botName}`, socketId);
-        this.log(`${'='.repeat(50)}`, socketId);
-        
-        if (items.length === 0) {
-            this.log('Ekwipunek jest pusty!', socketId);
-        } else {
-            for (const item of items) {
-                let itemInfo = `[Slot ${item.slot}] ${item.name} x${item.count}`;
-                
-                if (item.nbt && item.nbt.value && item.nbt.value.Enchantments) {
-                    const enchants = item.nbt.value.Enchantments.value.value;
-                    if (enchants && enchants.length > 0) {
-                        itemInfo += '\n  Enchanty:';
-                        for (const enchant of enchants) {
-                            const enchantId = enchant.id.value;
-                            const enchantLvl = enchant.lvl.value;
-                            itemInfo += `\n    - ${enchantId} (Poziom ${enchantLvl})`;
-                        }
-                    }
-                }
-                
-                this.log(itemInfo, socketId);
-            }
-        }
-        
-        this.log(`${'='.repeat(50)}\n`, socketId);
-        return true;
+        return listItemsCommand(this, socketId, botName, together);
+    }
+    
+    executeLoopUse(socketId, botName) {
+        return executeLoopUse(this, socketId, botName);
+    }
+    
+    executeWalk(socketId, botName, direction) {
+        return executeWalk(this, socketId, botName, direction);
+    }
+    
+    executeDropItem(socketId, botName, slot) {
+        return executeDropItem(this, socketId, botName, slot);
+    }
+    
+    executeLook(socketId, botName, yaw, pitch) {
+        return executeLook(this, socketId, botName, yaw, pitch);
+    }
+    
+    executeSetSlot(socketId, botName, slot) {
+        return executeSetSlot(this, socketId, botName, slot);
+    }
+    
+    executeRightClick(socketId, botName) {
+        return executeRightClick(this, socketId, botName);
+    }
+    
+    executeLeftClick(socketId, botName) {
+        return executeLeftClick(this, socketId, botName);
+    }
+    
+    executeGuiClick(socketId, botName, slot) {
+        return executeGuiClick(this, socketId, botName, slot);
     }
 }
 
@@ -759,11 +375,11 @@ io.on('connection', (socket) => {
         
         socket.emit('log', `> ${command}`);
         
-        if (cmd === 'create') {
+        if (cmd === '.create') {
             if (parts.length !== 4 && parts.length !== 5) {
-                socket.emit('log', 'Uzycie: create <nazwa|.randomname> <ip[:port]> <wersja> [liczba]');
-                socket.emit('log', 'Przyklad: create bot1 hypixel.net 1.8.9');
-                socket.emit('log', 'Przyklad: create .randomname sigma.pl 1.8 5');
+                socket.emit('log', 'Uzycie: .create <nazwa|.randomname> <ip[:port]> <wersja> [liczba]');
+                socket.emit('log', 'Przyklad: .create bot1 hypixel.net 1.8.9');
+                socket.emit('log', 'Przyklad: .create .randomname sigma.pl 1.8 5');
             } else {
                 if (parts[1] === '.randomname') {
                     const count = parts[4] ? parseInt(parts[4]) : 1;
@@ -776,22 +392,27 @@ io.on('connection', (socket) => {
                     manager.createBot(parts[1], parts[2], parts[3]);
                 }
             }
-        } else if (cmd === 'start') {
+        } else if (cmd === '.start') {
             if (parts.length < 2) {
-                socket.emit('log', 'Uzycie: start <nazwa|*> [flagi]');
+                socket.emit('log', 'Uzycie: .start <nazwa|*> [flagi]');
                 socket.emit('log', 'Dostepne flagi:');
-                socket.emit('log', '  -js <wiadomosc> - Wiadomosc po dolaczeniu do serwera (1s)');
-                socket.emit('log', '  -r - Automatyczne ponowne laczenie');
-                socket.emit('log', '  -j - Anti-AFK jump (ciagle skakanie)');
+                socket.emit('log', '  -joinsend <wiadomosc> - Wiadomosc po dolaczeniu do serwera (1s)');
+                socket.emit('log', '  -reconnect - Automatyczne ponowne laczenie');
+                socket.emit('log', '  -maxreconnect <liczba> - Max prob reconnect (domyslnie 999)');
+                socket.emit('log', '  -jumpafk - Anti-AFK jump (ciagle skakanie)');
+                socket.emit('log', '  -jumpafk:<sekundy> - Jump przez X sekund po spawnie');
+                socket.emit('log', '  -sneakafk - Anti-AFK sneak (ciagle shift)');
+                socket.emit('log', '  -sneakafk:<sekundy> - Sneak przez X sekund po spawnie');
                 socket.emit('log', '');
-                socket.emit('log', 'Flagi kolejnosciowe (po 5s kazda):');
-                socket.emit('log', '  -ss <0-8> - Ustawienie slotu (hotbar)');
-                socket.emit('log', '  -rc - Klikniecie prawym przyciskiem myszy');
-                socket.emit('log', '  -lc - Klikniecie lewym przyciskiem myszy');
-                socket.emit('log', '  -gc <0-53> - Klikniecie slotu w GUI');
+                socket.emit('log', 'Flagi kolejnosciowe:');
+                socket.emit('log', '  -delayflag <ms> - Customowy delay miedzy flagami (domyslnie 5000ms)');
+                socket.emit('log', '  -setslot <0-8> - Ustawienie slotu (hotbar)');
+                socket.emit('log', '  -rightclick - Klikniecie prawym przyciskiem myszy');
+                socket.emit('log', '  -leftclick - Klikniecie lewym przyciskiem myszy');
+                socket.emit('log', '  -guiclick <0-53> - Klikniecie slotu w GUI');
                 socket.emit('log', '');
                 socket.emit('log', 'Uzyj * aby uruchomic wszystkie boty:');
-                socket.emit('log', '  start * -r -j');
+                socket.emit('log', '  .start * -reconnect -jumpafk:10 -sneakafk');
             } else {
                 const botName = parts[1];
                 const flagArgs = parts.slice(2);
@@ -820,9 +441,9 @@ io.on('connection', (socket) => {
                     manager.startBot(botName, flags);
                 }
             }
-        } else if (cmd === 'stop') {
+        } else if (cmd === '.stop') {
             if (parts.length !== 2) {
-                socket.emit('log', 'Uzycie: stop <nazwa|*>');
+                socket.emit('log', 'Uzycie: .stop <nazwa|*>');
             } else {
                 const botName = parts[1];
                 
@@ -843,30 +464,94 @@ io.on('connection', (socket) => {
                     manager.stopBot(botName);
                 }
             }
-        } else if (cmd === 'delete') {
+        } else if (cmd === '.delete') {
             if (parts.length !== 2) {
-                socket.emit('log', 'Uzycie: delete <nazwa>');
+                socket.emit('log', 'Uzycie: .delete <nazwa>');
             } else {
                 manager.deleteBot(parts[1]);
             }
-        } else if (cmd === 'logs') {
+        } else if (cmd === '.logs') {
             if (parts.length !== 2) {
-                socket.emit('log', 'Uzycie: logs <nazwa|*>');
+                socket.emit('log', 'Uzycie: .logs <nazwa|*>');
             } else {
                 manager.enterLogs(socket.id, parts[1]);
             }
-        } else if (cmd === 'listitems') {
+        } else if (cmd === '.listitems') {
             if (parts.length < 2) {
-                socket.emit('log', 'Uzycie: listitems <nazwa|*> [together]');
-                socket.emit('log', 'Przyklad: listitems kaqvu_x1');
-                socket.emit('log', 'Przyklad: listitems * - pokazuje wszystkie boty oddzielnie');
-                socket.emit('log', 'Przyklad: listitems * together - laczy itemy wszystkich botow');
+                socket.emit('log', 'Uzycie: .listitems <nazwa|*> [together]');
+                socket.emit('log', 'Przyklad: .listitems kaqvu_x1');
+                socket.emit('log', 'Przyklad: .listitems * - pokazuje wszystkie boty oddzielnie');
+                socket.emit('log', 'Przyklad: .listitems * together - laczy itemy wszystkich botow');
             } else {
                 const botName = parts[1];
                 const together = parts[2] === 'together';
                 manager.listItemsCommand(socket.id, botName, together);
             }
-        } else if (cmd === 'list') {
+        } else if (cmd === '.loopuse') {
+            if (parts.length !== 2) {
+                socket.emit('log', 'Uzycie: .loopuse <nazwa|*>');
+                socket.emit('log', 'Przyklad: .loopuse bot1');
+                socket.emit('log', 'Przyklad: .loopuse * - wszystkie boty');
+            } else {
+                manager.executeLoopUse(socket.id, parts[1]);
+            }
+        } else if (cmd === '.walk') {
+            if (parts.length !== 3) {
+                socket.emit('log', 'Uzycie: .walk <nazwa|*> <forward|back|left|right>');
+                socket.emit('log', 'Przyklad: .walk bot1 forward');
+                socket.emit('log', 'Przyklad: .walk * back');
+            } else {
+                manager.executeWalk(socket.id, parts[1], parts[2]);
+            }
+        } else if (cmd === '.dropitem') {
+            if (parts.length !== 3) {
+                socket.emit('log', 'Uzycie: .dropitem <nazwa|*> <slot>');
+                socket.emit('log', 'Przyklad: .dropitem bot1 36');
+                socket.emit('log', 'Przyklad: .dropitem * 0');
+            } else {
+                manager.executeDropItem(socket.id, parts[1], parts[2]);
+            }
+        } else if (cmd === '.look') {
+            if (parts.length !== 4) {
+                socket.emit('log', 'Uzycie: .look <nazwa|*> <yaw> <pitch>');
+                socket.emit('log', 'Przyklad: .look bot1 0 0');
+                socket.emit('log', 'Przyklad: .look * 1.5 -0.5');
+            } else {
+                manager.executeLook(socket.id, parts[1], parts[2], parts[3]);
+            }
+        } else if (cmd === '.setslot') {
+            if (parts.length !== 3) {
+                socket.emit('log', 'Uzycie: .setslot <nazwa|*> <0-8>');
+                socket.emit('log', 'Przyklad: .setslot bot1 0');
+                socket.emit('log', 'Przyklad: .setslot * 5');
+            } else {
+                manager.executeSetSlot(socket.id, parts[1], parts[2]);
+            }
+        } else if (cmd === '.rightclick') {
+            if (parts.length !== 2) {
+                socket.emit('log', 'Uzycie: .rightclick <nazwa|*>');
+                socket.emit('log', 'Przyklad: .rightclick bot1');
+                socket.emit('log', 'Przyklad: .rightclick *');
+            } else {
+                manager.executeRightClick(socket.id, parts[1]);
+            }
+        } else if (cmd === '.leftclick') {
+            if (parts.length !== 2) {
+                socket.emit('log', 'Uzycie: .leftclick <nazwa|*>');
+                socket.emit('log', 'Przyklad: .leftclick bot1');
+                socket.emit('log', 'Przyklad: .leftclick *');
+            } else {
+                manager.executeLeftClick(socket.id, parts[1]);
+            }
+        } else if (cmd === '.guiclick') {
+            if (parts.length !== 3) {
+                socket.emit('log', 'Uzycie: .guiclick <nazwa|*> <0-53>');
+                socket.emit('log', 'Przyklad: .guiclick bot1 10');
+                socket.emit('log', 'Przyklad: .guiclick * 0');
+            } else {
+                manager.executeGuiClick(socket.id, parts[1], parts[2]);
+            }
+        } else if (cmd === '.list') {
             const count = Object.keys(manager.bots).length;
             socket.emit('log', `Utworzone boty: ${count}`);
             if (count > 0) {
@@ -875,34 +560,49 @@ io.on('connection', (socket) => {
                     socket.emit('log', `  - ${name} [${status}]`);
                 }
             }
-        } else if (cmd === 'clear') {
+        } else if (cmd === '.clear') {
             socket.emit('clearConsole');
             socket.emit('log', 'kaqvuNodeBot - Web Interface');
             socket.emit('log', '');
-        } else if (cmd === 'help') {
-            socket.emit('log', 'Komendy:');
-            socket.emit('log', '  create <nazwa> <ip[:port]> <wersja>');
-            socket.emit('log', '  start <nazwa> [flagi]');
-            socket.emit('log', '  stop <nazwa>');
-            socket.emit('log', '  delete <nazwa>');
-            socket.emit('log', '  logs <nazwa>');
-            socket.emit('log', '  listitems <nazwa|*> [together]');
-            socket.emit('log', '  list');
-            socket.emit('log', '  clear');
-            socket.emit('log', '  help');
+        } else if (cmd === '.help') {
+            socket.emit('log', 'Komendy glowne:');
+            socket.emit('log', '  .create <nazwa> <ip[:port]> <wersja>');
+            socket.emit('log', '  .start <nazwa|*> [flagi]');
+            socket.emit('log', '  .stop <nazwa|*>');
+            socket.emit('log', '  .delete <nazwa>');
+            socket.emit('log', '  .logs <nazwa|*>');
+            socket.emit('log', '  .listitems <nazwa|*> [together]');
+            socket.emit('log', '  .list');
+            socket.emit('log', '  .clear');
+            socket.emit('log', '  .help');
+            socket.emit('log', '');
+            socket.emit('log', 'Komendy akcji:');
+            socket.emit('log', '  .loopuse <nazwa|*>');
+            socket.emit('log', '  .walk <nazwa|*> <forward|back|left|right>');
+            socket.emit('log', '  .dropitem <nazwa|*> <slot>');
+            socket.emit('log', '  .look <nazwa|*> <yaw> <pitch>');
+            socket.emit('log', '  .setslot <nazwa|*> <0-8>');
+            socket.emit('log', '  .rightclick <nazwa|*>');
+            socket.emit('log', '  .leftclick <nazwa|*>');
+            socket.emit('log', '  .guiclick <nazwa|*> <0-53>');
             socket.emit('log', '');
             socket.emit('log', 'Flagi startu:');
-            socket.emit('log', '  -js <wiadomosc> - Wiadomosc po dolaczeniu (1s)');
-            socket.emit('log', '  -r - Automatyczne ponowne laczenie');
-            socket.emit('log', '  -j - Anti-AFK jump (ciagle skakanie)');
+            socket.emit('log', '  -joinsend <wiadomosc> - Wiadomosc po dolaczeniu (1s)');
+            socket.emit('log', '  -reconnect - Automatyczne ponowne laczenie');
+            socket.emit('log', '  -maxreconnect <liczba> - Max prob reconnect');
+            socket.emit('log', '  -jumpafk - Anti-AFK jump');
+            socket.emit('log', '  -jumpafk:<sekundy> - Jump przez X sekund');
+            socket.emit('log', '  -sneakafk - Anti-AFK sneak');
+            socket.emit('log', '  -sneakafk:<sekundy> - Sneak przez X sekund');
             socket.emit('log', '');
-            socket.emit('log', 'Flagi kolejnosciowe (po 5s kazda):');
-            socket.emit('log', '  -ss <0-8> - Ustawienie slotu (hotbar)');
-            socket.emit('log', '  -rc - Klikniecie prawym przyciskiem myszy');
-            socket.emit('log', '  -lc - Klikniecie lewym przyciskiem myszy');
-            socket.emit('log', '  -gc <0-53> - Klikniecie slotu w GUI');
+            socket.emit('log', 'Flagi kolejnosciowe:');
+            socket.emit('log', '  -delayflag <ms> - Customowy delay');
+            socket.emit('log', '  -setslot <0-8> - Ustawienie slotu');
+            socket.emit('log', '  -rightclick - Prawy przycisk');
+            socket.emit('log', '  -leftclick - Lewy przycisk');
+            socket.emit('log', '  -guiclick <0-53> - Klikniecie GUI');
         } else {
-            socket.emit('log', 'Nieznana komenda!');
+            socket.emit('log', 'Nieznana komenda! Wpisz .help');
         }
     });
     
@@ -913,6 +613,51 @@ io.on('connection', (socket) => {
             manager.exitLogs(socket.id);
         } else if (trimmed === '.listitems') {
             manager.listItems(socket.id);
+        } else if (trimmed.startsWith('.loopuse')) {
+            const botName = manager.logsModes[socket.id];
+            if (botName) {
+                manager.executeLoopUse(socket.id, botName);
+            }
+        } else if (trimmed.startsWith('.walk ')) {
+            const parts = trimmed.split(/\s+/);
+            const botName = manager.logsModes[socket.id];
+            if (botName && parts[1]) {
+                manager.executeWalk(socket.id, botName, parts[1]);
+            }
+        } else if (trimmed.startsWith('.dropitem ')) {
+            const parts = trimmed.split(/\s+/);
+            const botName = manager.logsModes[socket.id];
+            if (botName && parts[1]) {
+                manager.executeDropItem(socket.id, botName, parts[1]);
+            }
+        } else if (trimmed.startsWith('.look ')) {
+            const parts = trimmed.split(/\s+/);
+            const botName = manager.logsModes[socket.id];
+            if (botName && parts[1] && parts[2]) {
+                manager.executeLook(socket.id, botName, parts[1], parts[2]);
+            }
+        } else if (trimmed.startsWith('.setslot ')) {
+            const parts = trimmed.split(/\s+/);
+            const botName = manager.logsModes[socket.id];
+            if (botName && parts[1]) {
+                manager.executeSetSlot(socket.id, botName, parts[1]);
+            }
+        } else if (trimmed === '.rightclick') {
+            const botName = manager.logsModes[socket.id];
+            if (botName) {
+                manager.executeRightClick(socket.id, botName);
+            }
+        } else if (trimmed === '.leftclick') {
+            const botName = manager.logsModes[socket.id];
+            if (botName) {
+                manager.executeLeftClick(socket.id, botName);
+            }
+        } else if (trimmed.startsWith('.guiclick ')) {
+            const parts = trimmed.split(/\s+/);
+            const botName = manager.logsModes[socket.id];
+            if (botName && parts[1]) {
+                manager.executeGuiClick(socket.id, botName, parts[1]);
+            }
         } else if (trimmed) {
             manager.sendMessage(socket.id, trimmed);
         }
