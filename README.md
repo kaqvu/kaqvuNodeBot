@@ -183,6 +183,22 @@ Bot będzie trzymał Shift przez określoną liczbę sekund po spawnie.
 ```
 (Bot będzie trzymał Shift przez 60 sekund)
 
+#### `-autofish`
+Bot automatycznie łowi ryby po spawnie.
+
+**Przykład:**
+```
+.start bot1 -autofish
+```
+
+#### `-autoeat`
+Bot automatycznie je gdy głód spadnie poniżej 8 głódków po spawnie.
+
+**Przykład:**
+```
+.start bot1 -autoeat
+```
+
 ### Flagi sekwencyjne
 
 Te flagi wykonują się automatycznie po spawnie bota w określonej kolejności z opóźnieniem.
@@ -380,6 +396,12 @@ Wejdź w tryb logów komendą `.logs bot1` lub `.logs *`, a następnie używaj t
 .rightclick
 .leftclick
 .guiclick 10
+.autoeat
+.follow kaqvu
+.autofish
+.goto 100 64 200
+.attack mob 4
+.stats
 ```
 
 #### `.exit`
@@ -431,17 +453,18 @@ PORT=3000
 ### Scenario 1: Bot farmujący na serwerze
 ```
 .create farmer mc.server.com 1.8.9
-.start farmer -reconnect -jumpafk:30 -joinsend /login haslo123
+.start farmer -reconnect -jumpafk:30 -joinsend /login haslo123 -autofish
 .logs farmer
 .setslot 0
-.loopuse
-.walk forward
+.autoeat
+.stats
 ```
 
-### Scenario 2: 10 botów jednocześnie
+### Scenario 2: 10 botów jednocześnie z auto-eat
 ```
 .create .randomname mc.server.com 1.8.9 10
 .start * -reconnect -maxreconnect 100 -sneakafk
+.autoeat *
 ```
 
 ### Scenario 3: Bot wykonujący sekwencję akcji
@@ -449,6 +472,68 @@ PORT=3000
 .create bot1 mc.server.com 1.19.4
 .start bot1 -reconnect -joinsend /login haslo -delayflag 2000 -setslot 0 -rightclick -guiclick 10 -guiclick 15 -guiclick 20
 ```
+
+### Scenario 4: Bot łowiący ryby automatycznie
+```
+.create fisher mc.server.com 1.8.9
+.start fisher -reconnect -autofish -autoeat
+.logs fisher
+.stats
+```
+
+### Scenario 5: Bot podążający za graczem
+```
+.create follower mc.server.com 1.8.9
+.start follower -reconnect -joinsend /login haslo
+.follow follower kaqvu
+.autoeat follower
+```
+
+### Scenario 6: Bot atakujący moby
+```
+.create warrior mc.server.com 1.8.9
+.start warrior -reconnect -autoeat
+.attack warrior mob 4
+.stats warrior
+```
+
+### Scenario 7: Bot idący do określonej lokacji
+```
+.create explorer mc.server.com 1.8.9
+.start explorer -reconnect
+.goto explorer 1000 64 -500
+.autoeat explorer
+```
+
+## Uwagi techniczne
+
+### Auto-respawn
+Bot automatycznie respawnuje po śmierci bez potrzeby ustawiania flagi. Działa zawsze.
+
+### Auto-eat
+- Uruchamia się gdy głód < 16/20 (zostało < 8 głódków, czyli 4 pełne ikonki)
+- Automatycznie znajduje jedzenie w ekwipunku
+- Rozpoznawane jedzenie: cooked (wszystko gotowane), bread, apple, carrot, potato, steak, beef, porkchop, chicken, mutton, rabbit
+
+### Follow
+- Bot zachowuje dystans ~3 bloki od gracza
+- Jeśli gracz się oddali, bot za nim idzie
+- Bot automatycznie patrzy w kierunku gracza
+
+### Auto-fish
+- Bot musi mieć wędkę w ręce
+- Wykrywa event złapania ryby (playerCollect)
+- Automatycznie rzuca wędkę ponownie
+
+### GoTo
+- Bot idzie prostą linią do celu
+- Nie omija przeszkód (używa prostego pathfindingu)
+- Automatycznie skacze gdy napotka przeszkodę wyższą niż 1 blok
+
+### Attack
+- Atakuje pierwsze napotka entity spełniające kryteria
+- Atakuje co 500ms
+- Automatycznie patrzy na cel przed atakiem
 
 ## Wsparcie
 

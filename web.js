@@ -20,7 +20,13 @@ const {
     executeSetSlot,
     executeRightClick,
     executeLeftClick,
-    executeGuiClick
+    executeGuiClick,
+    executeAutoEat,
+    executeFollow,
+    executeAutoFish,
+    executeGoTo,
+    executeAttack,
+    executeStats
 } = require('./web-functions');
 
 const app = express();
@@ -213,7 +219,7 @@ class BotManager {
             return false;
         }
         
-        const validFlags = ['-joinsend', '-reconnect', '-maxreconnect', '-jumpafk', '-sneakafk', '-delayflag', '-setslot', '-rightclick', '-leftclick', '-guiclick'];
+        const validFlags = ['-joinsend', '-reconnect', '-maxreconnect', '-jumpafk', '-sneakafk', '-delayflag', '-setslot', '-rightclick', '-leftclick', '-guiclick', '-autofish', '-autoeat'];
         
         for (const flag of Object.keys(flags)) {
             const baseFlag = flag.split(':')[0];
@@ -273,6 +279,24 @@ class BotManager {
         }
         if (bot.walkInterval) {
             clearInterval(bot.walkInterval);
+        }
+        if (bot.autoEatInterval) {
+            clearInterval(bot.autoEatInterval);
+        }
+        if (bot.followInterval) {
+            clearInterval(bot.followInterval);
+        }
+        if (bot.gotoInterval) {
+            clearInterval(bot.gotoInterval);
+        }
+        if (bot.attackInterval) {
+            clearInterval(bot.attackInterval);
+        }
+        if (bot.autoFishActive) {
+            bot.autoFishActive = false;
+            if (bot.fishingListener) {
+                bot.removeListener('playerCollect', bot.fishingListener);
+            }
         }
         
         delete this.reconnectFlags[name];
@@ -374,6 +398,30 @@ class BotManager {
     executeGuiClick(socketId, botName, slot) {
         return executeGuiClick(this, socketId, botName, slot);
     }
+    
+    executeAutoEat(socketId, botName) {
+        return executeAutoEat(this, socketId, botName);
+    }
+    
+    executeFollow(socketId, botName, targetPlayer) {
+        return executeFollow(this, socketId, botName, targetPlayer);
+    }
+    
+    executeAutoFish(socketId, botName) {
+        return executeAutoFish(this, socketId, botName);
+    }
+    
+    executeGoTo(socketId, botName, x, y, z) {
+        return executeGoTo(this, socketId, botName, x, y, z);
+    }
+    
+    executeAttack(socketId, botName, target, range) {
+        return executeAttack(this, socketId, botName, target, range);
+    }
+    
+    executeStats(socketId, botName) {
+        return executeStats(this, socketId, botName);
+    }
 }
 
 const manager = new BotManager(io);
@@ -425,6 +473,8 @@ io.on('connection', (socket) => {
                 socket.emit('log', '  -jumpafk:<sekundy> - Jump przez X sekund po spawnie');
                 socket.emit('log', '  -sneakafk - Anti-AFK sneak (ciagle shift)');
                 socket.emit('log', '  -sneakafk:<sekundy> - Sneak przez X sekund po spawnie');
+                socket.emit('log', '  -autofish - Auto lowienie ryb po spawnie');
+                socket.emit('log', '  -autoeat - Auto jedzenie po spawnie');
                 socket.emit('log', '');
                 socket.emit('log', 'Flagi kolejnosciowe:');
                 socket.emit('log', '  -delayflag <ms> - Customowy delay miedzy flagami (domyslnie 5000ms)');
@@ -590,6 +640,54 @@ io.on('connection', (socket) => {
             } else {
                 manager.executeGuiClick(socket.id, parts[1], parts[2]);
             }
+        } else if (cmd === '.autoeat') {
+            if (parts.length !== 2) {
+                socket.emit('log', 'Uzycie: .autoeat <nazwa|*>');
+                socket.emit('log', 'Przyklad: .autoeat bot1');
+                socket.emit('log', 'Przyklad: .autoeat *');
+            } else {
+                manager.executeAutoEat(socket.id, parts[1]);
+            }
+        } else if (cmd === '.follow') {
+            if (parts.length !== 3) {
+                socket.emit('log', 'Uzycie: .follow <nazwa|*> <nick gracza>');
+                socket.emit('log', 'Przyklad: .follow bot1 kaqvu');
+                socket.emit('log', 'Przyklad: .follow * Notch');
+            } else {
+                manager.executeFollow(socket.id, parts[1], parts[2]);
+            }
+        } else if (cmd === '.autofish') {
+            if (parts.length !== 2) {
+                socket.emit('log', 'Uzycie: .autofish <nazwa|*>');
+                socket.emit('log', 'Przyklad: .autofish bot1');
+                socket.emit('log', 'Przyklad: .autofish *');
+            } else {
+                manager.executeAutoFish(socket.id, parts[1]);
+            }
+        } else if (cmd === '.goto') {
+            if (parts.length !== 5) {
+                socket.emit('log', 'Uzycie: .goto <nazwa|*> <x> <y> <z>');
+                socket.emit('log', 'Przyklad: .goto bot1 100 64 200');
+                socket.emit('log', 'Przyklad: .goto * 0 70 0');
+            } else {
+                manager.executeGoTo(socket.id, parts[1], parts[2], parts[3], parts[4]);
+            }
+        } else if (cmd === '.attack') {
+            if (parts.length !== 4) {
+                socket.emit('log', 'Uzycie: .attack <nazwa|*> <mob|player|all> <range>');
+                socket.emit('log', 'Przyklad: .attack bot1 mob 4');
+                socket.emit('log', 'Przyklad: .attack * player 5');
+            } else {
+                manager.executeAttack(socket.id, parts[1], parts[2], parts[3]);
+            }
+        } else if (cmd === '.stats') {
+            if (parts.length !== 2) {
+                socket.emit('log', 'Uzycie: .stats <nazwa|*>');
+                socket.emit('log', 'Przyklad: .stats bot1');
+                socket.emit('log', 'Przyklad: .stats *');
+            } else {
+                manager.executeStats(socket.id, parts[1]);
+            }
         } else if (cmd === '.list') {
             const count = Object.keys(manager.bots).length;
             socket.emit('log', `Utworzone boty: ${count}`);
@@ -632,6 +730,12 @@ io.on('connection', (socket) => {
             socket.emit('log', '  .rightclick <nazwa|*>');
             socket.emit('log', '  .leftclick <nazwa|*>');
             socket.emit('log', '  .guiclick <nazwa|*> <0-53>');
+            socket.emit('log', '  .autoeat <nazwa|*>');
+            socket.emit('log', '  .follow <nazwa|*> <nick gracza>');
+            socket.emit('log', '  .autofish <nazwa|*>');
+            socket.emit('log', '  .goto <nazwa|*> <x> <y> <z>');
+            socket.emit('log', '  .attack <nazwa|*> <mob|player|all> <range>');
+            socket.emit('log', '  .stats <nazwa|*>');
             socket.emit('log', '');
             socket.emit('log', 'Flagi startu:');
             socket.emit('log', '  -joinsend <wiadomosc> - Wiadomosc po dolaczeniu (1s)');
@@ -641,6 +745,8 @@ io.on('connection', (socket) => {
             socket.emit('log', '  -jumpafk:<sekundy> - Jump przez X sekund');
             socket.emit('log', '  -sneakafk - Anti-AFK sneak');
             socket.emit('log', '  -sneakafk:<sekundy> - Sneak przez X sekund');
+            socket.emit('log', '  -autofish - Auto lowienie ryb');
+            socket.emit('log', '  -autoeat - Auto jedzenie');
             socket.emit('log', '');
             socket.emit('log', 'Flagi kolejnosciowe:');
             socket.emit('log', '  -delayflag <ms> - Customowy delay');
@@ -708,6 +814,39 @@ io.on('connection', (socket) => {
             const botName = manager.logsModes[socket.id];
             if (botName && parts[1]) {
                 manager.executeGuiClick(socket.id, botName, parts[1]);
+            }
+        } else if (trimmed === '.autoeat') {
+            const botName = manager.logsModes[socket.id];
+            if (botName) {
+                manager.executeAutoEat(socket.id, botName);
+            }
+        } else if (trimmed.startsWith('.follow ')) {
+            const parts = trimmed.split(/\s+/);
+            const botName = manager.logsModes[socket.id];
+            if (botName && parts[1]) {
+                manager.executeFollow(socket.id, botName, parts[1]);
+            }
+        } else if (trimmed === '.autofish') {
+            const botName = manager.logsModes[socket.id];
+            if (botName) {
+                manager.executeAutoFish(socket.id, botName);
+            }
+        } else if (trimmed.startsWith('.goto ')) {
+            const parts = trimmed.split(/\s+/);
+            const botName = manager.logsModes[socket.id];
+            if (botName && parts[1] && parts[2] && parts[3]) {
+                manager.executeGoTo(socket.id, botName, parts[1], parts[2], parts[3]);
+            }
+        } else if (trimmed.startsWith('.attack ')) {
+            const parts = trimmed.split(/\s+/);
+            const botName = manager.logsModes[socket.id];
+            if (botName && parts[1] && parts[2]) {
+                manager.executeAttack(socket.id, botName, parts[1], parts[2]);
+            }
+        } else if (trimmed === '.stats') {
+            const botName = manager.logsModes[socket.id];
+            if (botName) {
+                manager.executeStats(socket.id, botName);
             }
         } else if (trimmed) {
             if (manager.settings.blockChat) {

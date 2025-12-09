@@ -29,7 +29,19 @@ function setupBotHandlers(manager, bot, name, flags) {
         
         handleAntiAFK(manager, bot, name, currentFlags);
         handleSneakAFK(manager, bot, name, currentFlags);
+        handleAutoFish(manager, bot, name, currentFlags);
+        handleAutoEat(manager, bot, name, currentFlags);
         handleSequenceFlags(manager, bot, name, currentFlags);
+    });
+    
+    bot.on('death', () => {
+        manager.log(`[${name}] Bot zginal!`);
+        setTimeout(() => {
+            if (manager.activeBots[name]) {
+                bot.respawn();
+                manager.log(`[${name}] Auto respawn wykonany`);
+            }
+        }, 1000);
     });
     
     bot.on('kicked', (reason) => {
@@ -127,6 +139,68 @@ function handleSneakAFK(manager, bot, name, flags) {
     }
 }
 
+function handleAutoFish(manager, bot, name, flags) {
+    if (flags.hasOwnProperty('-autofish')) {
+        startAutoFishing(manager, bot, name);
+    }
+}
+
+function handleAutoEat(manager, bot, name, flags) {
+    if (flags.hasOwnProperty('-autoeat')) {
+        const eatInterval = setInterval(() => {
+            if (!manager.activeBots[name]) {
+                clearInterval(eatInterval);
+                return;
+            }
+            
+            if (bot.food < 16) {
+                const foods = bot.inventory.items().filter(item => 
+                    item.name.includes('cooked') || 
+                    item.name.includes('bread') || 
+                    item.name.includes('apple') ||
+                    item.name.includes('carrot') ||
+                    item.name.includes('potato') ||
+                    item.name.includes('beef') ||
+                    item.name.includes('porkchop') ||
+                    item.name.includes('chicken') ||
+                    item.name.includes('mutton') ||
+                    item.name.includes('rabbit') ||
+                    item.name.includes('steak')
+                );
+                
+                if (foods.length > 0) {
+                    bot.equip(foods[0], 'hand').then(() => {
+                        bot.consume();
+                    }).catch(() => {});
+                }
+            }
+        }, 1000);
+        
+        bot.autoEatInterval = eatInterval;
+        manager.log(`[${name}] Auto eat wlaczony (je gdy < 8 glodkow)`);
+    }
+}
+
+function startAutoFishing(manager, bot, name) {
+    bot.autoFishActive = true;
+    
+    const fishingListener = () => {
+        if (!bot.autoFishActive || !manager.activeBots[name]) return;
+        
+        setTimeout(() => {
+            if (bot.autoFishActive && manager.activeBots[name]) {
+                bot.activateItem();
+            }
+        }, 500);
+    };
+    
+    bot.on('playerCollect', fishingListener);
+    bot.fishingListener = fishingListener;
+    
+    bot.activateItem();
+    manager.log(`[${name}] Auto fishing wlaczony`);
+}
+
 function handleSequenceFlags(manager, bot, name, flags) {
     const sequenceFlags = [];
     const flagOrder = ['-setslot', '-rightclick', '-leftclick', '-guiclick'];
@@ -220,6 +294,24 @@ function cleanupBot(manager, bot, name) {
     }
     if (bot.walkInterval) {
         clearInterval(bot.walkInterval);
+    }
+    if (bot.autoEatInterval) {
+        clearInterval(bot.autoEatInterval);
+    }
+    if (bot.followInterval) {
+        clearInterval(bot.followInterval);
+    }
+    if (bot.gotoInterval) {
+        clearInterval(bot.gotoInterval);
+    }
+    if (bot.attackInterval) {
+        clearInterval(bot.attackInterval);
+    }
+    if (bot.autoFishActive) {
+        bot.autoFishActive = false;
+        if (bot.fishingListener) {
+            bot.removeListener('playerCollect', bot.fishingListener);
+        }
     }
 }
 
@@ -766,6 +858,525 @@ function displayBotInventory(manager, socketId, botName) {
     manager.log(`${'='.repeat(50)}\n`, socketId);
 }
 
+function executeAutoEat(manager, socketId, botName) {
+    if (botName === '*') {
+        const activeBots = Object.keys(manager.activeBots);
+        if (activeBots.length === 0) {
+            manager.log('Brak aktywnych botow!', socketId);
+            return false;
+        }
+        
+        for (const name of activeBots) {
+            const bot = manager.activeBots[name];
+            
+            if (bot.autoEatInterval) {
+                clearInterval(bot.autoEatInterval);
+                bot.autoEatInterval = null;
+                manager.log(`[${name}] Auto eat wylaczony`, socketId);
+            } else {
+                const eatInterval = setInterval(() => {
+                    if (!manager.activeBots[name]) {
+                        clearInterval(eatInterval);
+                        return;
+                    }
+                    
+                    if (bot.food < 16) {
+                        const foods = bot.inventory.items().filter(item => 
+                            item.name.includes('cooked') || 
+                            item.name.includes('bread') || 
+                            item.name.includes('apple') ||
+                            item.name.includes('carrot') ||
+                            item.name.includes('potato') ||
+                            item.name.includes('beef') ||
+                            item.name.includes('porkchop') ||
+                            item.name.includes('chicken') ||
+                            item.name.includes('mutton') ||
+                            item.name.includes('rabbit') ||
+                            item.name.includes('steak')
+                        );
+                        
+                        if (foods.length > 0) {
+                            bot.equip(foods[0], 'hand').then(() => {
+                                bot.consume();
+                            }).catch(() => {});
+                        }
+                    }
+                }, 1000);
+                
+                bot.autoEatInterval = eatInterval;
+                manager.log(`[${name}] Auto eat wlaczony (je gdy < 8 glodkow)`, socketId);
+            }
+        }
+        return true;
+    }
+    
+    if (!manager.activeBots[botName]) {
+        manager.log(`Bot '${botName}' nie jest uruchomiony!`, socketId);
+        return false;
+    }
+    
+    const bot = manager.activeBots[botName];
+    
+    if (bot.autoEatInterval) {
+        clearInterval(bot.autoEatInterval);
+        bot.autoEatInterval = null;
+        manager.log(`[${botName}] Auto eat wylaczony`, socketId);
+    } else {
+        const eatInterval = setInterval(() => {
+            if (!manager.activeBots[botName]) {
+                clearInterval(eatInterval);
+                return;
+            }
+            
+            if (bot.food < 16) {
+                const foods = bot.inventory.items().filter(item => 
+                    item.name.includes('cooked') || 
+                    item.name.includes('bread') || 
+                    item.name.includes('apple') ||
+                    item.name.includes('carrot') ||
+                    item.name.includes('potato') ||
+                    item.name.includes('beef') ||
+                    item.name.includes('porkchop') ||
+                    item.name.includes('chicken') ||
+                    item.name.includes('mutton') ||
+                    item.name.includes('rabbit') ||
+                    item.name.includes('steak')
+                );
+                
+                if (foods.length > 0) {
+                    bot.equip(foods[0], 'hand').then(() => {
+                        bot.consume();
+                    }).catch(() => {});
+                }
+            }
+        }, 1000);
+        
+        bot.autoEatInterval = eatInterval;
+        manager.log(`[${botName}] Auto eat wlaczony (je gdy < 8 glodkow)`, socketId);
+    }
+    
+    return true;
+}
+
+function executeFollow(manager, socketId, botName, targetPlayer) {
+    if (botName === '*') {
+        const activeBots = Object.keys(manager.activeBots);
+        if (activeBots.length === 0) {
+            manager.log('Brak aktywnych botow!', socketId);
+            return false;
+        }
+        
+        for (const name of activeBots) {
+            const bot = manager.activeBots[name];
+            
+            if (bot.followInterval) {
+                clearInterval(bot.followInterval);
+                bot.followInterval = null;
+                manager.log(`[${name}] Follow wylaczony`, socketId);
+            } else {
+                const followInterval = setInterval(() => {
+                    if (!manager.activeBots[name]) {
+                        clearInterval(followInterval);
+                        return;
+                    }
+                    
+                    const player = bot.players[targetPlayer];
+                    if (player && player.entity) {
+                        const pos = player.entity.position;
+                        const distance = bot.entity.position.distanceTo(pos);
+                        
+                        if (distance > 3) {
+                            const dx = pos.x - bot.entity.position.x;
+                            const dz = pos.z - bot.entity.position.z;
+                            
+                            bot.setControlState('forward', Math.abs(dx) > 0.5 || Math.abs(dz) > 0.5);
+                            
+                            if (Math.abs(dx) > 0.5 || Math.abs(dz) > 0.5) {
+                                bot.look(Math.atan2(-dx, -dz), 0);
+                            }
+                        } else {
+                            bot.setControlState('forward', false);
+                        }
+                    }
+                }, 100);
+                
+                bot.followInterval = followInterval;
+                manager.log(`[${name}] Follow wlaczony (cel: ${targetPlayer})`, socketId);
+            }
+        }
+        return true;
+    }
+    
+    if (!manager.activeBots[botName]) {
+        manager.log(`Bot '${botName}' nie jest uruchomiony!`, socketId);
+        return false;
+    }
+    
+    const bot = manager.activeBots[botName];
+    
+    if (bot.followInterval) {
+        clearInterval(bot.followInterval);
+        bot.followInterval = null;
+        bot.setControlState('forward', false);
+        manager.log(`[${botName}] Follow wylaczony`, socketId);
+    } else {
+        const followInterval = setInterval(() => {
+            if (!manager.activeBots[botName]) {
+                clearInterval(followInterval);
+                return;
+            }
+            
+            const player = bot.players[targetPlayer];
+            if (player && player.entity) {
+                const pos = player.entity.position;
+                const distance = bot.entity.position.distanceTo(pos);
+                
+                if (distance > 3) {
+                    const dx = pos.x - bot.entity.position.x;
+                    const dz = pos.z - bot.entity.position.z;
+                    
+                    bot.setControlState('forward', Math.abs(dx) > 0.5 || Math.abs(dz) > 0.5);
+                    
+                    if (Math.abs(dx) > 0.5 || Math.abs(dz) > 0.5) {
+                        bot.look(Math.atan2(-dx, -dz), 0);
+                    }
+                } else {
+                    bot.setControlState('forward', false);
+                }
+            }
+        }, 100);
+        
+        bot.followInterval = followInterval;
+        manager.log(`[${botName}] Follow wlaczony (cel: ${targetPlayer})`, socketId);
+    }
+    
+    return true;
+}
+
+function executeAutoFish(manager, socketId, botName) {
+    if (botName === '*') {
+        const activeBots = Object.keys(manager.activeBots);
+        if (activeBots.length === 0) {
+            manager.log('Brak aktywnych botow!', socketId);
+            return false;
+        }
+        
+        for (const name of activeBots) {
+            const bot = manager.activeBots[name];
+            
+            if (bot.autoFishActive) {
+                bot.autoFishActive = false;
+                if (bot.fishingListener) {
+                    bot.removeListener('playerCollect', bot.fishingListener);
+                }
+                manager.log(`[${name}] Auto fishing wylaczony`, socketId);
+            } else {
+                startAutoFishing(manager, bot, name);
+            }
+        }
+        return true;
+    }
+    
+    if (!manager.activeBots[botName]) {
+        manager.log(`Bot '${botName}' nie jest uruchomiony!`, socketId);
+        return false;
+    }
+    
+    const bot = manager.activeBots[botName];
+    
+    if (bot.autoFishActive) {
+        bot.autoFishActive = false;
+        if (bot.fishingListener) {
+            bot.removeListener('playerCollect', bot.fishingListener);
+        }
+        manager.log(`[${botName}] Auto fishing wylaczony`, socketId);
+    } else {
+        startAutoFishing(manager, bot, botName);
+    }
+    
+    return true;
+}
+
+function executeGoTo(manager, socketId, botName, xStr, yStr, zStr) {
+    const x = parseFloat(xStr);
+    const y = parseFloat(yStr);
+    const z = parseFloat(zStr);
+    
+    if (isNaN(x) || isNaN(y) || isNaN(z)) {
+        manager.log('Koordynaty musza byc liczbami!', socketId);
+        return false;
+    }
+    
+    if (botName === '*') {
+        const activeBots = Object.keys(manager.activeBots);
+        if (activeBots.length === 0) {
+            manager.log('Brak aktywnych botow!', socketId);
+            return false;
+        }
+        
+        for (const name of activeBots) {
+            const bot = manager.activeBots[name];
+            
+            if (bot.gotoInterval) {
+                clearInterval(bot.gotoInterval);
+                bot.gotoInterval = null;
+                bot.setControlState('forward', false);
+                manager.log(`[${name}] GoTo zatrzymany`, socketId);
+            } else {
+                const gotoInterval = setInterval(() => {
+                    if (!manager.activeBots[name]) {
+                        clearInterval(gotoInterval);
+                        return;
+                    }
+                    
+                    const distance = Math.sqrt(
+                        Math.pow(x - bot.entity.position.x, 2) +
+                        Math.pow(z - bot.entity.position.z, 2)
+                    );
+                    
+                    if (distance < 2) {
+                        clearInterval(gotoInterval);
+                        bot.gotoInterval = null;
+                        bot.setControlState('forward', false);
+                        manager.log(`[${name}] GoTo osiagnieto cel!`, socketId);
+                    } else {
+                        const dx = x - bot.entity.position.x;
+                        const dz = z - bot.entity.position.z;
+                        
+                        bot.look(Math.atan2(-dx, -dz), 0);
+                        bot.setControlState('forward', true);
+                        
+                        if (bot.entity.position.y < y - 1) {
+                            bot.setControlState('jump', true);
+                            setTimeout(() => {
+                                bot.setControlState('jump', false);
+                            }, 100);
+                        }
+                    }
+                }, 100);
+                
+                bot.gotoInterval = gotoInterval;
+                manager.log(`[${name}] GoTo wlaczony (cel: ${x}, ${y}, ${z})`, socketId);
+            }
+        }
+        return true;
+    }
+    
+    if (!manager.activeBots[botName]) {
+        manager.log(`Bot '${botName}' nie jest uruchomiony!`, socketId);
+        return false;
+    }
+    
+    const bot = manager.activeBots[botName];
+    
+    if (bot.gotoInterval) {
+        clearInterval(bot.gotoInterval);
+        bot.gotoInterval = null;
+        bot.setControlState('forward', false);
+        manager.log(`[${botName}] GoTo zatrzymany`, socketId);
+    } else {
+        const gotoInterval = setInterval(() => {
+            if (!manager.activeBots[botName]) {
+                clearInterval(gotoInterval);
+                return;
+            }
+            
+            const distance = Math.sqrt(
+                Math.pow(x - bot.entity.position.x, 2) +
+                Math.pow(z - bot.entity.position.z, 2)
+            );
+            
+            if (distance < 2) {
+                clearInterval(gotoInterval);
+                bot.gotoInterval = null;
+                bot.setControlState('forward', false);
+                manager.log(`[${botName}] GoTo osiagnieto cel!`, socketId);
+            } else {
+                const dx = x - bot.entity.position.x;
+                const dz = z - bot.entity.position.z;
+                
+                bot.look(Math.atan2(-dx, -dz), 0);
+                bot.setControlState('forward', true);
+                
+                if (bot.entity.position.y < y - 1) {
+                    bot.setControlState('jump', true);
+                    setTimeout(() => {
+                        bot.setControlState('jump', false);
+                    }, 100);
+                }
+            }
+        }, 100);
+        
+        bot.gotoInterval = gotoInterval;
+        manager.log(`[${botName}] GoTo wlaczony (cel: ${x}, ${y}, ${z})`, socketId);
+    }
+    
+    return true;
+}
+
+function executeAttack(manager, socketId, botName, target, rangeStr) {
+    const range = parseFloat(rangeStr);
+    
+    if (isNaN(range)) {
+        manager.log('Range musi byc liczba!', socketId);
+        return false;
+    }
+    
+    const validTargets = ['mob', 'player', 'all'];
+    if (!validTargets.includes(target.toLowerCase())) {
+        manager.log('Target musi byc: mob, player lub all', socketId);
+        return false;
+    }
+    
+    if (botName === '*') {
+        const activeBots = Object.keys(manager.activeBots);
+        if (activeBots.length === 0) {
+            manager.log('Brak aktywnych botow!', socketId);
+            return false;
+        }
+        
+        for (const name of activeBots) {
+            const bot = manager.activeBots[name];
+            
+            if (bot.attackInterval) {
+                clearInterval(bot.attackInterval);
+                bot.attackInterval = null;
+                manager.log(`[${name}] Attack wylaczony`, socketId);
+            } else {
+                const attackInterval = setInterval(() => {
+                    if (!manager.activeBots[name]) {
+                        clearInterval(attackInterval);
+                        return;
+                    }
+                    
+                    const entities = Object.values(bot.entities);
+                    let targetEntity = null;
+                    
+                    for (const entity of entities) {
+                        if (!entity || entity === bot.entity) continue;
+                        
+                        const distance = bot.entity.position.distanceTo(entity.position);
+                        if (distance > range) continue;
+                        
+                        if (target === 'mob' && entity.type === 'mob') {
+                            targetEntity = entity;
+                            break;
+                        } else if (target === 'player' && entity.type === 'player') {
+                            targetEntity = entity;
+                            break;
+                        } else if (target === 'all' && (entity.type === 'mob' || entity.type === 'player')) {
+                            targetEntity = entity;
+                            break;
+                        }
+                    }
+                    
+                    if (targetEntity) {
+                        bot.lookAt(targetEntity.position.offset(0, targetEntity.height, 0));
+                        bot.attack(targetEntity);
+                    }
+                }, 500);
+                
+                bot.attackInterval = attackInterval;
+                manager.log(`[${name}] Attack wlaczony (cel: ${target}, zasieg: ${range})`, socketId);
+            }
+        }
+        return true;
+    }
+    
+    if (!manager.activeBots[botName]) {
+        manager.log(`Bot '${botName}' nie jest uruchomiony!`, socketId);
+        return false;
+    }
+    
+    const bot = manager.activeBots[botName];
+    
+    if (bot.attackInterval) {
+        clearInterval(bot.attackInterval);
+        bot.attackInterval = null;
+        manager.log(`[${botName}] Attack wylaczony`, socketId);
+    } else {
+        const attackInterval = setInterval(() => {
+            if (!manager.activeBots[botName]) {
+                clearInterval(attackInterval);
+                return;
+            }
+            
+            const entities = Object.values(bot.entities);
+            let targetEntity = null;
+            
+            for (const entity of entities) {
+                if (!entity || entity === bot.entity) continue;
+                
+                const distance = bot.entity.position.distanceTo(entity.position);
+                if (distance > range) continue;
+                
+                if (target === 'mob' && entity.type === 'mob') {
+                    targetEntity = entity;
+                    break;
+                } else if (target === 'player' && entity.type === 'player') {
+                    targetEntity = entity;
+                    break;
+                } else if (target === 'all' && (entity.type === 'mob' || entity.type === 'player')) {
+                    targetEntity = entity;
+                    break;
+                }
+            }
+            
+            if (targetEntity) {
+                bot.lookAt(targetEntity.position.offset(0, targetEntity.height, 0));
+                bot.attack(targetEntity);
+            }
+        }, 500);
+        
+        bot.attackInterval = attackInterval;
+        manager.log(`[${botName}] Attack wlaczony (cel: ${target}, zasieg: ${range})`, socketId);
+    }
+    
+    return true;
+}
+
+function executeStats(manager, socketId, botName) {
+    if (botName === '*') {
+        const activeBots = Object.keys(manager.activeBots);
+        if (activeBots.length === 0) {
+            manager.log('Brak aktywnych botow!', socketId);
+            return false;
+        }
+        
+        for (const name of activeBots) {
+            displayBotStats(manager, socketId, name);
+        }
+        return true;
+    }
+    
+    if (!manager.activeBots[botName]) {
+        manager.log(`Bot '${botName}' nie jest uruchomiony!`, socketId);
+        return false;
+    }
+    
+    displayBotStats(manager, socketId, botName);
+    return true;
+}
+
+function displayBotStats(manager, socketId, botName) {
+    const bot = manager.activeBots[botName];
+    if (!bot) return;
+    
+    const pos = bot.entity.position;
+    const health = bot.health || 0;
+    const food = bot.food || 0;
+    const dimension = bot.game ? bot.game.dimension : 'unknown';
+    
+    manager.log(`\n${'='.repeat(50)}`, socketId);
+    manager.log(`STATYSTYKI BOTA: ${botName}`, socketId);
+    manager.log(`${'='.repeat(50)}`, socketId);
+    manager.log(`HP: ${health}/20`, socketId);
+    manager.log(`Glod: ${food}/20`, socketId);
+    manager.log(`Pozycja: X=${pos.x.toFixed(2)} Y=${pos.y.toFixed(2)} Z=${pos.z.toFixed(2)}`, socketId);
+    manager.log(`Wymiar: ${dimension}`, socketId);
+    manager.log(`${'='.repeat(50)}\n`, socketId);
+}
+
 function displayCombinedInventory(manager, socketId, botNames) {
     const itemsMap = new Map();
     
@@ -842,5 +1453,11 @@ module.exports = {
     executeSetSlot,
     executeRightClick,
     executeLeftClick,
-    executeGuiClick
+    executeGuiClick,
+    executeAutoEat,
+    executeFollow,
+    executeAutoFish,
+    executeGoTo,
+    executeAttack,
+    executeStats
 };
