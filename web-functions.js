@@ -1,5 +1,6 @@
 function setupBotHandlers(manager, bot, name, flags) {
     bot.on('login', () => {
+        manager.botStates[name] = 'connected';
         manager.log(`[${name}] Bot zalogowany na serwer!`);
         manager.io.emit('botList', manager.getBotsList());
         
@@ -46,7 +47,9 @@ function setupBotHandlers(manager, bot, name, flags) {
     
     bot.on('kicked', (reason) => {
         manager.log(`[${name}] Wyrzucono z serwera: ${reason}`);
+        manager.botStates[name] = 'disconnected';
         cleanupBot(manager, bot, name);
+        exitLogsForBot(manager, name);
         delete manager.activeBots[name];
         manager.io.emit('botList', manager.getBotsList());
         
@@ -55,7 +58,9 @@ function setupBotHandlers(manager, bot, name, flags) {
     
     bot.on('end', () => {
         manager.log(`[${name}] Polaczenie zakonczone`);
+        manager.botStates[name] = 'disconnected';
         cleanupBot(manager, bot, name);
+        exitLogsForBot(manager, name);
         delete manager.activeBots[name];
         manager.io.emit('botList', manager.getBotsList());
         
@@ -77,6 +82,23 @@ function setupBotHandlers(manager, bot, name, flags) {
             }
         }
     });
+}
+
+function exitLogsForBot(manager, botName) {
+    const socketsToExit = [];
+    
+    for (const socketId in manager.logsModes) {
+        const mode = manager.logsModes[socketId];
+        if (mode === botName || mode === '*') {
+            socketsToExit.push(socketId);
+        }
+    }
+    
+    for (const socketId of socketsToExit) {
+        delete manager.logsModes[socketId];
+        manager.log(`\nBot ${botName} zostal rozlaczony - wychodzenie z logow...\n`, socketId);
+        manager.io.to(socketId).emit('logsMode', false);
+    }
 }
 
 function handleAntiAFK(manager, bot, name, flags) {
@@ -263,7 +285,8 @@ function handleSequenceFlags(manager, bot, name, flags) {
 }
 
 function handleReconnect(manager, name) {
-    if (manager.reconnectFlags[name]) {
+    if (manager.reconnectFlags[name] && !manager.reconnecting[name]) {
+        manager.reconnecting[name] = true;
         const reconnectData = manager.reconnectFlags[name];
         manager.reconnectAttempts[name] = (manager.reconnectAttempts[name] || 0) + 1;
         
@@ -271,17 +294,20 @@ function handleReconnect(manager, name) {
             manager.log(`[${name}] Osiagnieto limit prob reconnect (${reconnectData.maxReconnects})`);
             delete manager.reconnectFlags[name];
             delete manager.reconnectAttempts[name];
+            delete manager.reconnecting[name];
+            manager.io.emit('botList', manager.getBotsList());
             return;
         }
         
-        manager.log(`[${name}] Ponowne laczenie za 5 sekund... (proba ${manager.reconnectAttempts[name]}/${reconnectData.maxReconnects})`);
+        manager.log(`[${name}] Ponowne laczenie za 10 sekund... (proba ${manager.reconnectAttempts[name]}/${reconnectData.maxReconnects})`);
+        manager.io.emit('botList', manager.getBotsList());
         
         setTimeout(() => {
             if (!manager.activeBots[name] && manager.reconnectFlags[name]) {
                 manager.firstSpawn[name] = true;
                 manager.startBot(name, reconnectData.flags);
             }
-        }, 5000);
+        }, 10000);
     }
 }
 

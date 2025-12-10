@@ -2,8 +2,10 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const mineflayer = require('mineflayer');
-const fs = require('fs');
+const fs = require('fs').promises;
+const fsSync = require('fs');
 const path = require('path');
+const dns = require('dns').promises;
 require('dotenv').config();
 
 const {
@@ -35,6 +37,14 @@ const io = socketIo(server);
 
 const PORT = process.env.PORT || 8080;
 
+const CONSTANTS = {
+    MAX_RECONNECTS: 999,
+    BOT_START_DELAY: 3000,
+    MAX_RANDOM_BOTS: 1000,
+    DEFAULT_PORT: 25565,
+    FLAGS: ['-joinsend', '-reconnect', '-maxreconnect', '-jumpafk', '-sneakafk', '-delayflag', '-setslot', '-rightclick', '-leftclick', '-guiclick', '-autofish', '-autoeat', '-nowifi']
+};
+
 class BotManager {
     constructor(io) {
         this.io = io;
@@ -42,55 +52,67 @@ class BotManager {
         this.settingsPath = path.join(__dirname, 'settings.json');
         this.bots = {};
         this.activeBots = {};
+        this.botStates = {};
         this.logsModes = {};
         this.reconnectFlags = {};
         this.reconnectAttempts = {};
+        this.reconnecting = {};
         this.spawnFlags = {};
         this.firstSpawn = {};
         this.availableNames = [];
         this.settings = { blockMessages: false, blockCommands: false };
         
-        if (!fs.existsSync(this.botsDir)) {
-            fs.mkdirSync(this.botsDir);
+        this.init();
+    }
+    
+    async init() {
+        if (!fsSync.existsSync(this.botsDir)) {
+            await fs.mkdir(this.botsDir, { recursive: true });
         }
         
-        this.loadSettings();
-        this.loadNames();
-        this.loadBots();
+        await this.loadSettings();
+        await this.loadNames();
+        await this.loadBots();
     }
     
-    loadSettings() {
-        if (fs.existsSync(this.settingsPath)) {
-            const data = fs.readFileSync(this.settingsPath, 'utf8');
+    async loadSettings() {
+        try {
+            const data = await fs.readFile(this.settingsPath, 'utf8');
             this.settings = JSON.parse(data);
-        } else {
-            this.saveSettings();
+        } catch (err) {
+            await this.saveSettings();
         }
     }
     
-    saveSettings() {
-        fs.writeFileSync(this.settingsPath, JSON.stringify(this.settings, null, 2));
+    async saveSettings() {
+        try {
+            await fs.writeFile(this.settingsPath, JSON.stringify(this.settings, null, 2));
+        } catch (err) {
+            this.log(`Blad zapisywania ustawien: ${err.message}`);
+        }
     }
     
-    toggleBlockMessages() {
+    async toggleBlockMessages() {
         this.settings.blockMessages = !this.settings.blockMessages;
-        this.saveSettings();
+        await this.saveSettings();
         return this.settings.blockMessages;
     }
     
-    toggleBlockCommands() {
+    async toggleBlockCommands() {
         this.settings.blockCommands = !this.settings.blockCommands;
-        this.saveSettings();
+        await this.saveSettings();
         return this.settings.blockCommands;
     }
     
-    loadNames() {
-        const namesPath = path.join(__dirname, 'names.txt');
-        if (fs.existsSync(namesPath)) {
-            const content = fs.readFileSync(namesPath, 'utf8');
+    async loadNames() {
+        try {
+            const namesPath = path.join(__dirname, 'names.txt');
+            const content = await fs.readFile(namesPath, 'utf8');
             this.availableNames = content.split('\n')
                 .map(line => line.trim())
                 .filter(line => line.length > 0);
+        } catch (err) {
+            this.availableNames = [];
         }
     }
     
@@ -102,20 +124,32 @@ class BotManager {
         }
     }
     
-    loadBots() {
-        const files = fs.readdirSync(this.botsDir);
-        for (const file of files) {
-            if (file.endsWith('.json')) {
-                const data = fs.readFileSync(path.join(this.botsDir, file), 'utf8');
-                const botData = JSON.parse(data);
-                this.bots[botData.name] = botData;
-            }
+    async loadBots() {
+        try {
+            const files = await fs.readdir(this.botsDir);
+            const jsonFiles = files.filter(file => file.endsWith('.json'));
+            
+            await Promise.all(jsonFiles.map(async (file) => {
+                try {
+                    const data = await fs.readFile(path.join(this.botsDir, file), 'utf8');
+                    const botData = JSON.parse(data);
+                    this.bots[botData.name] = botData;
+                } catch (err) {
+                    this.log(`Blad wczytywania bota ${file}: ${err.message}`);
+                }
+            }));
+        } catch (err) {
+            this.log(`Blad wczytywania botow: ${err.message}`);
         }
     }
     
-    saveBot(botData) {
-        const filePath = path.join(this.botsDir, `${botData.name}.json`);
-        fs.writeFileSync(filePath, JSON.stringify(botData, null, 2));
+    async saveBot(botData) {
+        try {
+            const filePath = path.join(this.botsDir, `${botData.name}.json`);
+            await fs.writeFile(filePath, JSON.stringify(botData, null, 2));
+        } catch (err) {
+            this.log(`Blad zapisywania bota: ${err.message}`);
+        }
     }
     
     parseFlags(args) {
@@ -123,19 +157,15 @@ class BotManager {
         let currentFlag = null;
         let currentValue = [];
         
-        for (let i = 0; i < args.length; i++) {
-            const arg = args[i];
-            
+        for (const arg of args) {
             if (arg.startsWith('-')) {
                 if (currentFlag) {
                     flags[currentFlag] = currentValue.join(' ');
                 }
                 currentFlag = arg;
                 currentValue = [];
-            } else {
-                if (currentFlag) {
-                    currentValue.push(arg);
-                }
+            } else if (currentFlag) {
+                currentValue.push(arg);
             }
         }
         
@@ -146,48 +176,61 @@ class BotManager {
         return flags;
     }
     
-    createBot(name, server, version) {
+    async checkInternet() {
+        try {
+            await dns.resolve('www.google.com');
+            return true;
+        } catch (err) {
+            return false;
+        }
+    }
+    
+    parseServerAddress(server) {
+        const parts = server.split(':');
+        
+        if (parts.length === 1) {
+            return { host: parts[0], port: CONSTANTS.DEFAULT_PORT };
+        } else if (parts.length === 2) {
+            return { host: parts[0], port: parseInt(parts[1]) };
+        }
+        
+        return null;
+    }
+    
+    async createBot(name, server, version) {
         if (this.bots[name]) {
             this.log(`Bot o nazwie '${name}' juz istnieje!`);
             return false;
         }
         
-        const parts = server.split(':');
-        let host, port;
-        
-        if (parts.length === 1) {
-            host = parts[0];
-            port = 25565;
-        } else if (parts.length === 2) {
-            host = parts[0];
-            port = parseInt(parts[1]);
-        } else {
+        const serverData = this.parseServerAddress(server);
+        if (!serverData) {
             this.log('Nieprawidlowy format serwera! Uzyj: ip:port lub ip');
             return false;
         }
         
         const botData = {
             name: name,
-            host: host,
-            port: port,
+            host: serverData.host,
+            port: serverData.port,
             version: version
         };
         
         this.bots[name] = botData;
-        this.saveBot(botData);
+        await this.saveBot(botData);
         this.log(`Utworzono bota: ${name}`);
         this.io.emit('botList', this.getBotsList());
         return true;
     }
     
-    createRandomBots(count, server, version) {
+    async createRandomBots(count, server, version) {
         if (this.availableNames.length === 0) {
             this.log('Brak dostepnych nazw w pliku names.txt!');
             return false;
         }
         
-        if (count < 1 || count > 1000) {
-            this.log('Liczba botow musi byc od 1 do 1000!');
+        if (count < 1 || count > CONSTANTS.MAX_RANDOM_BOTS) {
+            this.log(`Liczba botow musi byc od 1 do ${CONSTANTS.MAX_RANDOM_BOTS}!`);
             return false;
         }
         
@@ -205,7 +248,7 @@ class BotManager {
         
         let created = 0;
         for (const name of selectedNames) {
-            if (this.createBot(name, server, version)) {
+            if (await this.createBot(name, server, version)) {
                 created++;
             }
         }
@@ -214,7 +257,41 @@ class BotManager {
         return true;
     }
     
-    startBot(name, flags = {}) {
+    validateFlags(flags) {
+        for (const flag of Object.keys(flags)) {
+            const baseFlag = flag.split(':')[0];
+            if (!CONSTANTS.FLAGS.includes(baseFlag)) {
+                return { valid: false, flag };
+            }
+        }
+        return { valid: true };
+    }
+    
+    cleanupBotResources(bot, name) {
+        const intervals = ['jumpInterval', 'useInterval', 'walkInterval', 'autoEatInterval', 'followInterval', 'gotoInterval', 'attackInterval'];
+        
+        for (const interval of intervals) {
+            if (bot[interval]) {
+                clearInterval(bot[interval]);
+            }
+        }
+        
+        if (bot.autoFishActive) {
+            bot.autoFishActive = false;
+            if (bot.fishingListener) {
+                bot.removeListener('playerCollect', bot.fishingListener);
+            }
+        }
+        
+        delete this.reconnectFlags[name];
+        delete this.reconnectAttempts[name];
+        delete this.reconnecting[name];
+        delete this.spawnFlags[name];
+        delete this.firstSpawn[name];
+        delete this.botStates[name];
+    }
+    
+    async startBot(name, flags = {}) {
         if (!this.bots[name]) {
             this.log(`Bot '${name}' nie istnieje!`);
             return false;
@@ -225,49 +302,63 @@ class BotManager {
             return false;
         }
         
-        const validFlags = ['-joinsend', '-reconnect', '-maxreconnect', '-jumpafk', '-sneakafk', '-delayflag', '-setslot', '-rightclick', '-leftclick', '-guiclick', '-autofish', '-autoeat'];
-        
-        for (const flag of Object.keys(flags)) {
-            const baseFlag = flag.split(':')[0];
-            if (!validFlags.includes(baseFlag)) {
-                this.log(`Nieznana flaga: ${flag}`);
-                this.log(`Dostepne flagi: ${validFlags.join(', ')}`);
-                return false;
-            }
+        const validation = this.validateFlags(flags);
+        if (!validation.valid) {
+            this.log(`Nieznana flaga: ${validation.flag}`);
+            this.log(`Dostepne flagi: ${CONSTANTS.FLAGS.join(', ')}`);
+            return false;
         }
         
         const botData = this.bots[name];
         const shouldReconnect = flags.hasOwnProperty('-reconnect');
-        const maxReconnects = flags['-maxreconnect'] ? parseInt(flags['-maxreconnect']) : 999;
+        const maxReconnects = flags['-maxreconnect'] ? parseInt(flags['-maxreconnect']) : CONSTANTS.MAX_RECONNECTS;
+        const noWifi = flags.hasOwnProperty('-nowifi');
         
         this.reconnectFlags[name] = shouldReconnect ? { flags, maxReconnects } : null;
         this.reconnectAttempts[name] = 0;
+        this.reconnecting[name] = false;
         this.spawnFlags[name] = flags;
         this.firstSpawn[name] = true;
         
-        const createBotInstance = () => {
-            try {
-                const bot = mineflayer.createBot({
-                    host: botData.host,
-                    port: botData.port,
-                    username: name,
-                    version: botData.version,
-                    hideErrors: true
-                });
-                
-                this.activeBots[name] = bot;
-                setupBotHandlers(this, bot, name, flags);
-                
-                this.log(`Uruchomiono bota: ${name}`);
-                this.io.emit('botList', this.getBotsList());
-                return true;
-            } catch (err) {
-                this.log(`Blad podczas uruchamiania bota: ${err.message}`);
+        if (!noWifi) {
+            const hasInternet = await this.checkInternet();
+            if (!hasInternet) {
+                this.log(`Brak polaczenia z internetem! Bot '${name}' nie zostal uruchomiony.`);
+                this.log(`Uzyj flagi -nowifi aby pominac sprawdzanie internetu`);
+                delete this.spawnFlags[name];
+                delete this.reconnectFlags[name];
+                delete this.reconnecting[name];
+                delete this.firstSpawn[name];
                 return false;
             }
-        };
+        }
         
-        return createBotInstance();
+        return this.startBotInstance(name, botData, flags);
+    }
+    
+    startBotInstance(name, botData, flags) {
+        try {
+            const bot = mineflayer.createBot({
+                host: botData.host,
+                port: botData.port,
+                username: name,
+                version: botData.version,
+                hideErrors: true
+            });
+            
+            this.activeBots[name] = bot;
+            this.botStates[name] = 'connecting';
+            this.reconnecting[name] = false;
+            setupBotHandlers(this, bot, name, flags);
+            
+            this.log(`Uruchomiono bota: ${name}`);
+            this.io.emit('botList', this.getBotsList());
+            return true;
+        } catch (err) {
+            this.log(`Blad podczas uruchamiania bota: ${err.message}`);
+            delete this.botStates[name];
+            return false;
+        }
     }
     
     stopBot(name) {
@@ -277,38 +368,8 @@ class BotManager {
         }
         
         const bot = this.activeBots[name];
-        if (bot.jumpInterval) {
-            clearInterval(bot.jumpInterval);
-        }
-        if (bot.useInterval) {
-            clearInterval(bot.useInterval);
-        }
-        if (bot.walkInterval) {
-            clearInterval(bot.walkInterval);
-        }
-        if (bot.autoEatInterval) {
-            clearInterval(bot.autoEatInterval);
-        }
-        if (bot.followInterval) {
-            clearInterval(bot.followInterval);
-        }
-        if (bot.gotoInterval) {
-            clearInterval(bot.gotoInterval);
-        }
-        if (bot.attackInterval) {
-            clearInterval(bot.attackInterval);
-        }
-        if (bot.autoFishActive) {
-            bot.autoFishActive = false;
-            if (bot.fishingListener) {
-                bot.removeListener('playerCollect', bot.fishingListener);
-            }
-        }
+        this.cleanupBotResources(bot, name);
         
-        delete this.reconnectFlags[name];
-        delete this.reconnectAttempts[name];
-        delete this.spawnFlags[name];
-        delete this.firstSpawn[name];
         bot.quit();
         delete this.activeBots[name];
         this.log(`Zatrzymano bota: ${name}`);
@@ -316,7 +377,7 @@ class BotManager {
         return true;
     }
     
-    deleteBot(name) {
+    async deleteBot(name) {
         if (!this.bots[name]) {
             this.log(`Bot '${name}' nie istnieje!`);
             return false;
@@ -328,12 +389,15 @@ class BotManager {
         
         delete this.reconnectFlags[name];
         delete this.reconnectAttempts[name];
+        delete this.reconnecting[name];
         delete this.spawnFlags[name];
         delete this.firstSpawn[name];
         
-        const jsonPath = path.join(this.botsDir, `${name}.json`);
-        if (fs.existsSync(jsonPath)) {
-            fs.unlinkSync(jsonPath);
+        try {
+            const jsonPath = path.join(this.botsDir, `${name}.json`);
+            await fs.unlink(jsonPath);
+        } catch (err) {
+            this.log(`Blad usuwania pliku bota: ${err.message}`);
         }
         
         delete this.bots[name];
@@ -343,14 +407,15 @@ class BotManager {
     }
     
     getBotsList() {
-        const botsList = [];
-        for (const name in this.bots) {
-            botsList.push({
+        return Object.keys(this.bots).map(name => {
+            const isActive = this.activeBots[name] || this.reconnectFlags[name];
+            const state = this.botStates[name] || 'disconnected';
+            return {
                 name: name,
-                status: this.activeBots[name] ? 'DZIALA' : 'ZATRZYMANY'
-            });
-        }
-        return botsList;
+                active: isActive ? true : false,
+                connected: state === 'connected'
+            };
+        });
     }
     
     enterLogs(socketId, botName) {
@@ -443,7 +508,7 @@ io.on('connection', (socket) => {
         socket.emit('botList', manager.getBotsList());
     });
     
-    socket.on('command', (command) => {
+    socket.on('command', async (command) => {
         const parts = command.trim().split(/\s+/);
         const cmd = parts[0].toLowerCase();
         
@@ -460,12 +525,12 @@ io.on('connection', (socket) => {
                 if (parts[1] === '.randomname') {
                     const count = parts[4] ? parseInt(parts[4]) : 1;
                     if (isNaN(count)) {
-                        socket.emit('log', 'Liczba musi byc liczba od 1 do 1000!');
+                        socket.emit('log', `Liczba musi byc liczba od 1 do ${CONSTANTS.MAX_RANDOM_BOTS}!`);
                     } else {
-                        manager.createRandomBots(count, parts[2], parts[3]);
+                        await manager.createRandomBots(count, parts[2], parts[3]);
                     }
                 } else {
-                    manager.createBot(parts[1], parts[2], parts[3]);
+                    await manager.createBot(parts[1], parts[2], parts[3]);
                 }
             }
         } else if (cmd === '.start') {
@@ -481,6 +546,7 @@ io.on('connection', (socket) => {
                 socket.emit('log', '  -sneakafk:<sekundy> - Sneak przez X sekund po spawnie');
                 socket.emit('log', '  -autofish - Auto lowienie ryb po spawnie');
                 socket.emit('log', '  -autoeat - Auto jedzenie po spawnie');
+                socket.emit('log', '  -nowifi - Pomija sprawdzanie internetu');
                 socket.emit('log', '');
                 socket.emit('log', 'Flagi kolejnosciowe:');
                 socket.emit('log', '  -delayflag <ms> - Customowy delay miedzy flagami (domyslnie 5000ms)');
@@ -506,21 +572,22 @@ io.on('connection', (socket) => {
                         if (botsToStart.length === 0) {
                             socket.emit('log', 'Wszystkie boty juz sa uruchomione!');
                         } else {
-                            const validFlags = ['-joinsend', '-reconnect', '-maxreconnect', '-jumpafk', '-sneakafk', '-delayflag', '-setslot', '-rightclick', '-leftclick', '-guiclick'];
-                            let hasInvalidFlag = false;
-                            
-                            for (const flag of Object.keys(flags)) {
-                                const baseFlag = flag.split(':')[0];
-                                if (!validFlags.includes(baseFlag)) {
-                                    socket.emit('log', `Nieznana flaga: ${flag}`);
-                                    socket.emit('log', `Dostepne flagi: ${validFlags.join(', ')}`);
-                                    hasInvalidFlag = true;
-                                    break;
-                                }
+                            const validation = manager.validateFlags(flags);
+                            if (!validation.valid) {
+                                socket.emit('log', `Nieznana flaga: ${validation.flag}`);
+                                socket.emit('log', `Dostepne flagi: ${CONSTANTS.FLAGS.join(', ')}`);
+                                return;
                             }
                             
-                            if (hasInvalidFlag) {
-                                return;
+                            const noWifi = flags.hasOwnProperty('-nowifi');
+                            
+                            if (!noWifi) {
+                                const hasInternet = await manager.checkInternet();
+                                if (!hasInternet) {
+                                    socket.emit('log', 'Brak polaczenia z internetem!');
+                                    socket.emit('log', 'Uzyj flagi -nowifi aby pominac sprawdzanie internetu');
+                                    return;
+                                }
                             }
                             
                             socket.emit('log', `Uruchamianie ${botsToStart.length} botow (co 3s)...`);
@@ -528,12 +595,12 @@ io.on('connection', (socket) => {
                             botsToStart.forEach((name, index) => {
                                 setTimeout(() => {
                                     manager.startBot(name, flags);
-                                }, index * 3000);
+                                }, index * CONSTANTS.BOT_START_DELAY);
                             });
                         }
                     }
                 } else {
-                    manager.startBot(botName, flags);
+                    await manager.startBot(botName, flags);
                 }
             }
         } else if (cmd === '.stop') {
@@ -563,7 +630,7 @@ io.on('connection', (socket) => {
             if (parts.length !== 2) {
                 socket.emit('log', 'Uzycie: .delete <nazwa>');
             } else {
-                manager.deleteBot(parts[1]);
+                await manager.deleteBot(parts[1]);
             }
         } else if (cmd === '.logs') {
             if (parts.length !== 2) {
@@ -699,7 +766,12 @@ io.on('connection', (socket) => {
             socket.emit('log', `Utworzone boty: ${count}`);
             if (count > 0) {
                 for (const name in manager.bots) {
-                    const status = manager.activeBots[name] ? 'DZIALA' : 'ZATRZYMANY';
+                    const isActive = manager.activeBots[name] || manager.reconnectFlags[name];
+                    const state = manager.botStates[name] || 'disconnected';
+                    let status = isActive ? 'WŁĄCZONY' : 'WYŁĄCZONY';
+                    if (isActive) {
+                        status += state === 'connected' ? ' (połączony)' : ' (niepołączony)';
+                    }
                     socket.emit('log', `  - ${name} [${status}]`);
                 }
             }
@@ -708,14 +780,14 @@ io.on('connection', (socket) => {
             socket.emit('log', 'kaqvuNodeBot - Web Interface');
             socket.emit('log', '');
         } else if (cmd === '.blockmessages') {
-            const status = manager.toggleBlockMessages();
+            const status = await manager.toggleBlockMessages();
             if (status) {
                 socket.emit('log', 'Block messages WLACZONY - nie mozesz pisac wiadomosci w logach');
             } else {
                 socket.emit('log', 'Block messages WYLACZONY - mozesz pisac wiadomosci w logach');
             }
         } else if (cmd === '.blockcommands') {
-            const status = manager.toggleBlockCommands();
+            const status = await manager.toggleBlockCommands();
             if (status) {
                 socket.emit('log', 'Block commands WLACZONY - nie mozesz wysylac komend (/) w logach');
             } else {
@@ -761,6 +833,7 @@ io.on('connection', (socket) => {
             socket.emit('log', '  -sneakafk:<sekundy> - Sneak przez X sekund');
             socket.emit('log', '  -autofish - Auto lowienie ryb');
             socket.emit('log', '  -autoeat - Auto jedzenie');
+            socket.emit('log', '  -nowifi - Pomija sprawdzanie internetu');
             socket.emit('log', '');
             socket.emit('log', 'Flagi kolejnosciowe:');
             socket.emit('log', '  -delayflag <ms> - Customowy delay');

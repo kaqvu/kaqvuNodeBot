@@ -162,6 +162,18 @@ button:hover {
     background: #005a9e;
 }
 
+.bot-status.status-connected {
+    color: #4ec9b0;
+}
+
+.bot-status.status-active {
+    color: #ce9178;
+}
+
+.bot-status.status-inactive {
+    color: #f48771;
+}
+
 .help-text {
     color: #858585;
     font-size: 12px;
