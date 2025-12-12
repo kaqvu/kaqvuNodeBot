@@ -863,7 +863,25 @@ function displayBotInventory(manager, socketId, botName) {
         manager.log('Ekwipunek jest pusty!', socketId);
     } else {
         for (const item of items) {
+            let displayName = null;
+            if (item.nbt && item.nbt.value && item.nbt.value.display && item.nbt.value.display.value && item.nbt.value.display.value.Name) {
+                displayName = item.nbt.value.display.value.Name.value;
+                try {
+                    const parsed = JSON.parse(displayName);
+                    if (parsed.text) {
+                        displayName = parsed.text;
+                    } else if (typeof parsed === 'string') {
+                        displayName = parsed;
+                    }
+                } catch (e) {
+                    displayName = displayName.replace(/§[0-9a-fk-or]/gi, '');
+                }
+            }
+            
             let itemInfo = `[Slot ${item.slot}] ${item.name} x${item.count}`;
+            if (displayName) {
+                itemInfo += `\n  Nazwa: ${displayName}`;
+            }
             
             if (item.nbt && item.nbt.value && item.nbt.value.Enchantments) {
                 const enchants = item.nbt.value.Enchantments.value.value;
@@ -1415,22 +1433,40 @@ function displayCombinedInventory(manager, socketId, botNames) {
         for (const item of items) {
             const itemKey = item.name;
             let enchantKey = '';
+            let displayName = null;
             
-            if (item.nbt && item.nbt.value && item.nbt.value.Enchantments) {
-                const enchants = item.nbt.value.Enchantments.value.value;
-                if (enchants && enchants.length > 0) {
-                    const enchantStrs = enchants.map(e => `${e.id.value}:${e.lvl.value}`);
-                    enchantKey = enchantStrs.sort().join(',');
+            if (item.nbt && item.nbt.value) {
+                if (item.nbt.value.Enchantments) {
+                    const enchants = item.nbt.value.Enchantments.value.value;
+                    if (enchants && enchants.length > 0) {
+                        const enchantStrs = enchants.map(e => `${e.id.value}:${e.lvl.value}`);
+                        enchantKey = enchantStrs.sort().join(',');
+                    }
+                }
+                
+                if (item.nbt.value.display && item.nbt.value.display.value && item.nbt.value.display.value.Name) {
+                    displayName = item.nbt.value.display.value.Name.value;
+                    try {
+                        const parsed = JSON.parse(displayName);
+                        if (parsed.text) {
+                            displayName = parsed.text;
+                        } else if (typeof parsed === 'string') {
+                            displayName = parsed;
+                        }
+                    } catch (e) {
+                        displayName = displayName.replace(/§[0-9a-fk-or]/gi, '');
+                    }
                 }
             }
             
-            const fullKey = `${itemKey}|${enchantKey}`;
+            const fullKey = `${itemKey}|${enchantKey}|${displayName || 'none'}`;
             
             if (itemsMap.has(fullKey)) {
                 itemsMap.get(fullKey).count += item.count;
             } else {
                 itemsMap.set(fullKey, {
                     name: item.name,
+                    displayName: displayName,
                     count: item.count,
                     enchants: item.nbt && item.nbt.value && item.nbt.value.Enchantments ? 
                         item.nbt.value.Enchantments.value.value : null
@@ -1448,6 +1484,10 @@ function displayCombinedInventory(manager, socketId, botNames) {
     } else {
         for (const [key, itemData] of itemsMap) {
             let itemInfo = `${itemData.name} x${itemData.count}`;
+            
+            if (itemData.displayName) {
+                itemInfo += `\n  Nazwa: ${itemData.displayName}`;
+            }
             
             if (itemData.enchants && itemData.enchants.length > 0) {
                 itemInfo += '\n  Enchanty:';
