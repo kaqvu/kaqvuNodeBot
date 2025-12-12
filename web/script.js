@@ -3,17 +3,24 @@ const consoleEl = document.getElementById('console');
 const commandInput = document.getElementById('commandInput');
 const botsListEl = document.getElementById('botsList');
 let logsMode = false;
-
 const MAX_CONSOLE_LINES = 1000;
 const COLORS = {
     active: '#00CED1',
     inactive: '#ff4444'
 };
 
+const escapeDiv = document.createElement('div');
 function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    escapeDiv.textContent = text;
+    return escapeDiv.innerHTML;
+}
+
+const htmlRegex = /<html>(.*?)<\/html>/gs;
+function parseLogMessage(message) {
+    if (message.includes('<html>')) {
+        return message.replace(htmlRegex, (_, content) => content);
+    }
+    return escapeHtml(message);
 }
 
 function trimConsoleLines() {
@@ -22,9 +29,7 @@ function trimConsoleLines() {
     }
 }
 
-socket.on('connect', () => {
-    console.log('Połączono z serwerem');
-});
+socket.on('connect', () => console.log('Połączono z serwerem'));
 
 socket.on('disconnect', () => {
     console.log('Rozłączono z serwerem');
@@ -36,23 +41,33 @@ socket.on('disconnect', () => {
     consoleEl.scrollTop = consoleEl.scrollHeight;
 });
 
+let scrollPending = false;
+function scrollToBottom() {
+    if (!scrollPending) {
+        scrollPending = true;
+        requestAnimationFrame(() => {
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+            scrollPending = false;
+        });
+    }
+}
+
 socket.on('log', (message) => {
     const line = document.createElement('div');
     line.className = 'console-line';
-    line.textContent = message;
+    line.innerHTML = parseLogMessage(message);
     consoleEl.appendChild(line);
     trimConsoleLines();
-    consoleEl.scrollTop = consoleEl.scrollHeight;
+    scrollToBottom();
 });
 
 socket.on('botList', (bots) => {
-    botsListEl.innerHTML = '';
-    
     if (!bots || bots.length === 0) {
         botsListEl.innerHTML = '<div style="color: #858585;">Brak botow</div>';
         return;
     }
     
+    const fragment = document.createDocumentFragment();
     bots.forEach(bot => {
         const botEl = document.createElement('div');
         botEl.className = 'bot-item';
@@ -66,33 +81,21 @@ socket.on('botList', (bots) => {
         
         if (bot.active) {
             if (bot.connected) {
-                const span = document.createElement('span');
-                span.style.color = COLORS.active;
-                span.textContent = 'WŁĄCZONY (połączony)';
-                statusEl.appendChild(span);
+                statusEl.innerHTML = `<span style="color: ${COLORS.active}">WŁĄCZONY (połączony)</span>`;
             } else {
-                const activeSpan = document.createElement('span');
-                activeSpan.style.color = COLORS.active;
-                activeSpan.textContent = 'WŁĄCZONY';
-                
-                const disconnectedSpan = document.createElement('span');
-                disconnectedSpan.style.color = COLORS.inactive;
-                disconnectedSpan.textContent = ' (niepołączony)';
-                
-                statusEl.appendChild(activeSpan);
-                statusEl.appendChild(disconnectedSpan);
+                statusEl.innerHTML = `<span style="color: ${COLORS.active}">WŁĄCZONY</span><span style="color: ${COLORS.inactive}"> (niepołączony)</span>`;
             }
         } else {
-            const span = document.createElement('span');
-            span.style.color = COLORS.inactive;
-            span.textContent = 'WYŁĄCZONY';
-            statusEl.appendChild(span);
+            statusEl.innerHTML = `<span style="color: ${COLORS.inactive}">WYŁĄCZONY</span>`;
         }
         
         botEl.appendChild(nameEl);
         botEl.appendChild(statusEl);
-        botsListEl.appendChild(botEl);
+        fragment.appendChild(botEl);
     });
+    
+    botsListEl.innerHTML = '';
+    botsListEl.appendChild(fragment);
 });
 
 socket.on('logsMode', (isLogsMode) => {
@@ -100,22 +103,17 @@ socket.on('logsMode', (isLogsMode) => {
     commandInput.placeholder = isLogsMode ? 'Wpisz wiadomosc lub .exit...' : 'Wpisz komende...';
 });
 
-socket.on('clearConsole', () => {
-    consoleEl.innerHTML = '';
-});
+socket.on('clearConsole', () => consoleEl.innerHTML = '');
 
 function sendCommand() {
     const command = commandInput.value.trim();
     if (!command) return;
-    
     socket.emit(logsMode ? 'logsMessage' : 'command', command);
     commandInput.value = '';
 }
 
 commandInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-        sendCommand();
-    }
+    if (e.key === 'Enter') sendCommand();
 });
 
 socket.emit('getInitialData');

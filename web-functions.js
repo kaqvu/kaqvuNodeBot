@@ -1,3 +1,74 @@
+function parseMinecraftText(jsonText) {
+    if (!jsonText) return null;
+    
+    try {
+        const parsed = typeof jsonText === 'string' ? JSON.parse(jsonText) : jsonText;
+        let result = '';
+        
+        const colorMap = {
+            'black': '#000000',
+            'dark_blue': '#0000AA',
+            'dark_green': '#00AA00',
+            'dark_aqua': '#00AAAA',
+            'dark_red': '#AA0000',
+            'dark_purple': '#AA00AA',
+            'gold': '#FFAA00',
+            'gray': '#AAAAAA',
+            'dark_gray': '#555555',
+            'blue': '#5555FF',
+            'green': '#55FF55',
+            'aqua': '#55FFFF',
+            'red': '#FF5555',
+            'light_purple': '#FF55FF',
+            'yellow': '#FFFF55',
+            'white': '#FFFFFF'
+        };
+        
+        function processComponent(component) {
+            if (!component) return '';
+            
+            let text = component.text || '';
+            let styles = [];
+            
+            if (component.color && colorMap[component.color]) {
+                styles.push(`color: ${colorMap[component.color]}`);
+            }
+            if (component.bold) {
+                styles.push('font-weight: bold');
+            }
+            if (component.italic) {
+                styles.push('font-style: italic');
+            }
+            if (component.underlined) {
+                styles.push('text-decoration: underline');
+            }
+            if (component.strikethrough) {
+                styles.push('text-decoration: line-through');
+            }
+            
+            if (styles.length > 0) {
+                text = `<span style="${styles.join('; ')}">${text}</span>`;
+            }
+            
+            return text;
+        }
+        
+        if (parsed.text) {
+            result += processComponent(parsed);
+        }
+        
+        if (parsed.extra && Array.isArray(parsed.extra)) {
+            for (const extra of parsed.extra) {
+                result += processComponent(extra);
+            }
+        }
+        
+        return result || null;
+    } catch (e) {
+        return jsonText.replace(/§[0-9a-fk-or]/gi, '');
+    }
+}
+
 function setupBotHandlers(manager, bot, name, flags) {
     bot.on('login', () => {
         manager.botStates[name] = 'connected';
@@ -865,22 +936,12 @@ function displayBotInventory(manager, socketId, botName) {
         for (const item of items) {
             let displayName = null;
             if (item.nbt && item.nbt.value && item.nbt.value.display && item.nbt.value.display.value && item.nbt.value.display.value.Name) {
-                displayName = item.nbt.value.display.value.Name.value;
-                try {
-                    const parsed = JSON.parse(displayName);
-                    if (parsed.text) {
-                        displayName = parsed.text;
-                    } else if (typeof parsed === 'string') {
-                        displayName = parsed;
-                    }
-                } catch (e) {
-                    displayName = displayName.replace(/§[0-9a-fk-or]/gi, '');
-                }
+                displayName = parseMinecraftText(item.nbt.value.display.value.Name.value);
             }
             
             let itemInfo = `[Slot ${item.slot}] ${item.name} x${item.count}`;
             if (displayName) {
-                itemInfo += `\n  Nazwa: ${displayName}`;
+                itemInfo += `\n  Nazwa: <html>${displayName}</html>`;
             }
             
             if (item.nbt && item.nbt.value && item.nbt.value.Enchantments) {
@@ -1445,17 +1506,7 @@ function displayCombinedInventory(manager, socketId, botNames) {
                 }
                 
                 if (item.nbt.value.display && item.nbt.value.display.value && item.nbt.value.display.value.Name) {
-                    displayName = item.nbt.value.display.value.Name.value;
-                    try {
-                        const parsed = JSON.parse(displayName);
-                        if (parsed.text) {
-                            displayName = parsed.text;
-                        } else if (typeof parsed === 'string') {
-                            displayName = parsed;
-                        }
-                    } catch (e) {
-                        displayName = displayName.replace(/§[0-9a-fk-or]/gi, '');
-                    }
+                    displayName = parseMinecraftText(item.nbt.value.display.value.Name.value);
                 }
             }
             
@@ -1486,7 +1537,7 @@ function displayCombinedInventory(manager, socketId, botNames) {
             let itemInfo = `${itemData.name} x${itemData.count}`;
             
             if (itemData.displayName) {
-                itemInfo += `\n  Nazwa: ${itemData.displayName}`;
+                itemInfo += `\n  Nazwa: <html>${itemData.displayName}</html>`;
             }
             
             if (itemData.enchants && itemData.enchants.length > 0) {
