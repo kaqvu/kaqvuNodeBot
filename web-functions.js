@@ -398,11 +398,11 @@ function cleanupBot(manager, bot, name) {
     if (bot.followInterval) {
         clearInterval(bot.followInterval);
     }
-    if (bot.gotoInterval) {
-        clearInterval(bot.gotoInterval);
-    }
     if (bot.attackInterval) {
         clearInterval(bot.attackInterval);
+    }
+    if (bot.pathfinder && bot.pathfinder.isMoving && bot.pathfinder.isMoving()) {
+        bot.pathfinder.setGoal(null);
     }
     if (bot.autoFishActive) {
         bot.autoFishActive = false;
@@ -585,12 +585,36 @@ function executeDropItem(manager, socketId, botName, slot) {
 }
 
 function executeLook(manager, socketId, botName, yawStr, pitchStr) {
-    const yaw = parseFloat(yawStr);
-    const pitch = parseFloat(pitchStr);
+    const predefinedDirections = {
+        'north': { yaw: 90, pitch: 0 },
+        'south': { yaw: -90, pitch: 0 },
+        'east': { yaw: 0, pitch: 0 },
+        'west': { yaw: 180, pitch: 0 },
+        'up': { yaw: 0, pitch: -90 },
+        'down': { yaw: 0, pitch: 90 }
+    };
     
-    if (isNaN(yaw) || isNaN(pitch)) {
-        manager.log('Yaw i pitch musza byc liczbami!', socketId);
-        return false;
+    let yaw, pitch;
+    
+    if (predefinedDirections[yawStr.toLowerCase()]) {
+        const direction = predefinedDirections[yawStr.toLowerCase()];
+        yaw = direction.yaw * (Math.PI / 180);
+        pitch = direction.pitch * (Math.PI / 180);
+    } else {
+        const yawInput = parseFloat(yawStr);
+        const pitchInput = parseFloat(pitchStr);
+        
+        if (isNaN(yawInput) || isNaN(pitchInput)) {
+            manager.log('Yaw i pitch musza byc liczbami lub kierunkiem!', socketId);
+            manager.log('Kierunki: north, south, east, west, up, down', socketId);
+            manager.log('Lub podaj liczby w stopniach (konwencja Mineflayer):', socketId);
+            manager.log('  YAW: 0=East, 90=North, 180=West, -90=South', socketId);
+            manager.log('  PITCH: -90=Up, 0=Straight, 90=Down', socketId);
+            return false;
+        }
+        
+        yaw = yawInput * (Math.PI / 180);
+        pitch = pitchInput * (Math.PI / 180);
     }
     
     if (botName === '*') {
@@ -602,8 +626,10 @@ function executeLook(manager, socketId, botName, yawStr, pitchStr) {
         
         for (const name of activeBots) {
             const bot = manager.activeBots[name];
-            bot.look(yaw, pitch);
-            manager.log(`[${name}] Patrzenie w kierunku: yaw=${yaw}, pitch=${pitch}`, socketId);
+            bot.look(yaw, pitch, true);
+            const yawDeg = (yaw * 180 / Math.PI).toFixed(1);
+            const pitchDeg = (pitch * 180 / Math.PI).toFixed(1);
+            manager.log(`[${name}] Patrzenie: yaw=${yawDeg}°, pitch=${pitchDeg}°`, socketId);
         }
         return true;
     }
@@ -614,8 +640,10 @@ function executeLook(manager, socketId, botName, yawStr, pitchStr) {
     }
     
     const bot = manager.activeBots[botName];
-    bot.look(yaw, pitch);
-    manager.log(`[${botName}] Patrzenie w kierunku: yaw=${yaw}, pitch=${pitch}`, socketId);
+    bot.look(yaw, pitch, true);
+    const yawDeg = (yaw * 180 / Math.PI).toFixed(1);
+    const pitchDeg = (pitch * 180 / Math.PI).toFixed(1);
+    manager.log(`[${botName}] Patrzenie: yaw=${yawDeg}°, pitch=${pitchDeg}°`, socketId);
     
     return true;
 }
@@ -770,8 +798,9 @@ function enterLogs(manager, socketId, botName) {
         manager.log(`Wpisz '.exit' aby wyjsc z logow`, socketId);
         manager.log(`Wpisz '.listitems' aby zobaczyc ekwipunek`, socketId);
         manager.log(`Wpisz wiadomosc aby wyslac na chat wszystkich botow`, socketId);
-        manager.log(`Komendy: .loopuse .walk <dir> .dropitem <slot> .look <yaw> <pitch>`, socketId);
+        manager.log(`Komendy: .loopuse .walk <dir> .dropitem <slot> .look <yaw|kierunek> [pitch]`, socketId);
         manager.log(`Komendy: .setslot <0-8> .rightclick .leftclick .guiclick <slot>`, socketId);
+        manager.log(`Komendy: .movetogui <slot_eq> <slot_gui> [-i <ilosc>] .exitgui`, socketId);
         manager.log(`${'='.repeat(50)}\n`, socketId);
         manager.io.to(socketId).emit('logsMode', true);
         return true;
@@ -788,8 +817,9 @@ function enterLogs(manager, socketId, botName) {
     manager.log(`Wpisz '.exit' aby wyjsc z logow`, socketId);
     manager.log(`Wpisz '.listitems' aby zobaczyc ekwipunek`, socketId);
     manager.log(`Wpisz wiadomosc aby wyslac na chat`, socketId);
-    manager.log(`Komendy: .loopuse .walk <dir> .dropitem <slot> .look <yaw> <pitch>`, socketId);
+    manager.log(`Komendy: .loopuse .walk <dir> .dropitem <slot> .look <yaw|kierunek> [pitch]`, socketId);
     manager.log(`Komendy: .setslot <0-8> .rightclick .leftclick .guiclick <slot>`, socketId);
+    manager.log(`Komendy: .movetogui <slot_eq> <slot_gui> [-i <ilosc>] .exitgui`, socketId);
     manager.log(`${'='.repeat(50)}\n`, socketId);
     manager.io.to(socketId).emit('logsMode', true);
     return true;
@@ -1222,46 +1252,11 @@ function executeGoTo(manager, socketId, botName, xStr, yStr, zStr) {
         for (const name of activeBots) {
             const bot = manager.activeBots[name];
             
-            if (bot.gotoInterval) {
-                clearInterval(bot.gotoInterval);
-                bot.gotoInterval = null;
-                bot.setControlState('forward', false);
+            if (bot.pathfinder && bot.pathfinder.isMoving && bot.pathfinder.isMoving()) {
+                bot.pathfinder.setGoal(null);
                 manager.log(`[${name}] GoTo zatrzymany`, socketId);
             } else {
-                const gotoInterval = setInterval(() => {
-                    if (!manager.activeBots[name]) {
-                        clearInterval(gotoInterval);
-                        return;
-                    }
-                    
-                    const distance = Math.sqrt(
-                        Math.pow(x - bot.entity.position.x, 2) +
-                        Math.pow(z - bot.entity.position.z, 2)
-                    );
-                    
-                    if (distance < 2) {
-                        clearInterval(gotoInterval);
-                        bot.gotoInterval = null;
-                        bot.setControlState('forward', false);
-                        manager.log(`[${name}] GoTo osiagnieto cel!`, socketId);
-                    } else {
-                        const dx = x - bot.entity.position.x;
-                        const dz = z - bot.entity.position.z;
-                        
-                        bot.look(Math.atan2(-dx, -dz), 0);
-                        bot.setControlState('forward', true);
-                        
-                        if (bot.entity.position.y < y - 1) {
-                            bot.setControlState('jump', true);
-                            setTimeout(() => {
-                                bot.setControlState('jump', false);
-                            }, 100);
-                        }
-                    }
-                }, 100);
-                
-                bot.gotoInterval = gotoInterval;
-                manager.log(`[${name}] GoTo wlaczony (cel: ${x}, ${y}, ${z})`, socketId);
+                startGoToPathfinder(manager, bot, name, x, y, z, socketId);
             }
         }
         return true;
@@ -1274,49 +1269,58 @@ function executeGoTo(manager, socketId, botName, xStr, yStr, zStr) {
     
     const bot = manager.activeBots[botName];
     
-    if (bot.gotoInterval) {
-        clearInterval(bot.gotoInterval);
-        bot.gotoInterval = null;
-        bot.setControlState('forward', false);
+    if (bot.pathfinder && bot.pathfinder.isMoving && bot.pathfinder.isMoving()) {
+        bot.pathfinder.setGoal(null);
         manager.log(`[${botName}] GoTo zatrzymany`, socketId);
     } else {
-        const gotoInterval = setInterval(() => {
-            if (!manager.activeBots[botName]) {
-                clearInterval(gotoInterval);
-                return;
-            }
-            
-            const distance = Math.sqrt(
-                Math.pow(x - bot.entity.position.x, 2) +
-                Math.pow(z - bot.entity.position.z, 2)
-            );
-            
-            if (distance < 2) {
-                clearInterval(gotoInterval);
-                bot.gotoInterval = null;
-                bot.setControlState('forward', false);
-                manager.log(`[${botName}] GoTo osiagnieto cel!`, socketId);
-            } else {
-                const dx = x - bot.entity.position.x;
-                const dz = z - bot.entity.position.z;
-                
-                bot.look(Math.atan2(-dx, -dz), 0);
-                bot.setControlState('forward', true);
-                
-                if (bot.entity.position.y < y - 1) {
-                    bot.setControlState('jump', true);
-                    setTimeout(() => {
-                        bot.setControlState('jump', false);
-                    }, 100);
-                }
-            }
-        }, 100);
-        
-        bot.gotoInterval = gotoInterval;
-        manager.log(`[${botName}] GoTo wlaczony (cel: ${x}, ${y}, ${z})`, socketId);
+        startGoToPathfinder(manager, bot, botName, x, y, z, socketId);
     }
     
     return true;
+}
+
+function startGoToPathfinder(manager, bot, name, x, y, z, socketId) {
+    try {
+        if (!bot.pathfinder) {
+            const pathfinder = require('mineflayer-pathfinder').pathfinder;
+            const Movements = require('mineflayer-pathfinder').Movements;
+            const goals = require('mineflayer-pathfinder').goals;
+            
+            bot.loadPlugin(pathfinder);
+            bot.pathfinderGoals = goals;
+            bot.pathfinderMovements = Movements;
+        }
+        
+        const mcData = require('minecraft-data')(bot.version);
+        const defaultMove = new bot.pathfinderMovements(bot, mcData);
+        defaultMove.canDig = false;
+        defaultMove.scafoldingBlocks = [];
+        
+        bot.pathfinder.setMovements(defaultMove);
+        
+        const goal = new bot.pathfinderGoals.GoalNear(x, y, z, 1);
+        
+        bot.pathfinder.setGoal(goal);
+        
+        manager.log(`[${name}] GoTo wlaczony (cel: ${x}, ${y}, ${z})`, socketId);
+        
+        if (!bot.gotoListenerAttached) {
+            bot.gotoListenerAttached = true;
+            
+            bot.once('goal_reached', () => {
+                manager.log(`[${name}] GoTo osiagnieto cel!`, socketId);
+            });
+            
+            bot.once('path_update', (results) => {
+                if (results.status === 'noPath') {
+                    manager.log(`[${name}] GoTo: nie znaleziono sciezki!`, socketId);
+                }
+            });
+        }
+    } catch (err) {
+        manager.log(`[${name}] Blad GoTo: ${err.message}`, socketId);
+        manager.log(`[${name}] Zainstaluj: npm install mineflayer-pathfinder`, socketId);
+    }
 }
 
 function executeAttack(manager, socketId, botName, target, rangeStr) {
@@ -1463,6 +1467,143 @@ function executeStats(manager, socketId, botName) {
     return true;
 }
 
+function executeMoveToGui(manager, socketId, botName, invSlotStr, guiSlotStr, amount = null) {
+    const invSlot = parseInt(invSlotStr);
+    const guiSlot = parseInt(guiSlotStr);
+    
+    if (isNaN(invSlot) || isNaN(guiSlot)) {
+        manager.log('Sloty musza byc liczbami!', socketId);
+        manager.log('Uzycie: .movetogui <nazwa|*> <slot_eq> <slot_gui> [-i <ilosc>]', socketId);
+        return false;
+    }
+    
+    if (amount !== null) {
+        const amountNum = parseInt(amount);
+        if (isNaN(amountNum) || amountNum < 1) {
+            manager.log('Ilosc musi byc liczba wieksza od 0!', socketId);
+            return false;
+        }
+    }
+    
+    if (botName === '*') {
+        const activeBots = Object.keys(manager.activeBots);
+        if (activeBots.length === 0) {
+            manager.log('Brak aktywnych botow!', socketId);
+            return false;
+        }
+        
+        for (const name of activeBots) {
+            moveItemToGui(manager, socketId, name, invSlot, guiSlot, amount);
+        }
+        return true;
+    }
+    
+    if (!manager.activeBots[botName]) {
+        manager.log(`Bot '${botName}' nie jest uruchomiony!`, socketId);
+        return false;
+    }
+    
+    moveItemToGui(manager, socketId, botName, invSlot, guiSlot, amount);
+    return true;
+}
+
+function moveItemToGui(manager, socketId, botName, invSlot, guiSlot, amount) {
+    const bot = manager.activeBots[botName];
+    
+    if (!bot.currentWindow || bot.currentWindow.type === 'minecraft:inventory') {
+        manager.log(`[${botName}] Brak otwartego GUI! Otworz skrzynke/GUI najpierw.`, socketId);
+        return false;
+    }
+    
+    const item = bot.inventory.slots[invSlot];
+    if (!item) {
+        manager.log(`[${botName}] Brak itemu w slocie ${invSlot}!`, socketId);
+        return false;
+    }
+    
+    const itemCount = item.count;
+    const moveAmount = amount !== null ? parseInt(amount) : itemCount;
+    
+    if (moveAmount > itemCount) {
+        manager.log(`[${botName}] Nie masz ${moveAmount}x ${item.name}! Masz tylko ${itemCount}x`, socketId);
+        return false;
+    }
+    
+    try {
+        if (moveAmount === itemCount) {
+            bot.clickWindow(invSlot, 0, 0).then(() => {
+                setTimeout(() => {
+                    bot.clickWindow(guiSlot, 0, 0).then(() => {
+                        manager.log(`[${botName}] Przeniesiono ${moveAmount}x ${item.name} ze slotu ${invSlot} do GUI slotu ${guiSlot}`, socketId);
+                    }).catch(err => {
+                        manager.log(`[${botName}] Blad klikania GUI: ${err.message}`, socketId);
+                    });
+                }, 150);
+            }).catch(err => {
+                manager.log(`[${botName}] Blad klikania inventory: ${err.message}`, socketId);
+            });
+        } else {
+            bot.clickWindow(invSlot, 1, 0).then(() => {
+                let clicks = 0;
+                const clickInterval = setInterval(() => {
+                    if (clicks < moveAmount) {
+                        bot.clickWindow(guiSlot, 1, 0).catch(() => {});
+                        clicks++;
+                    } else {
+                        clearInterval(clickInterval);
+                        setTimeout(() => {
+                            bot.clickWindow(invSlot, 0, 0).catch(() => {});
+                            manager.log(`[${botName}] Przeniesiono ${moveAmount}x ${item.name} ze slotu ${invSlot} do GUI slotu ${guiSlot}`, socketId);
+                        }, 100);
+                    }
+                }, 100);
+            }).catch(err => {
+                manager.log(`[${botName}] Blad podczas przenoszenia: ${err.message}`, socketId);
+            });
+        }
+        return true;
+    } catch (err) {
+        manager.log(`[${botName}] Blad podczas przenoszenia: ${err.message}`, socketId);
+        return false;
+    }
+}
+
+function executeExitGui(manager, socketId, botName) {
+    if (botName === '*') {
+        const activeBots = Object.keys(manager.activeBots);
+        if (activeBots.length === 0) {
+            manager.log('Brak aktywnych botow!', socketId);
+            return false;
+        }
+        
+        for (const name of activeBots) {
+            const bot = manager.activeBots[name];
+            if (bot.currentWindow && bot.currentWindow.type !== 'minecraft:inventory') {
+                bot.closeWindow(bot.currentWindow);
+                manager.log(`[${name}] Zamknieto GUI`, socketId);
+            } else {
+                manager.log(`[${name}] Brak otwartego GUI`, socketId);
+            }
+        }
+        return true;
+    }
+    
+    if (!manager.activeBots[botName]) {
+        manager.log(`Bot '${botName}' nie jest uruchomiony!`, socketId);
+        return false;
+    }
+    
+    const bot = manager.activeBots[botName];
+    if (bot.currentWindow && bot.currentWindow.type !== 'minecraft:inventory') {
+        bot.closeWindow(bot.currentWindow);
+        manager.log(`[${botName}] Zamknieto GUI`, socketId);
+    } else {
+        manager.log(`[${botName}] Brak otwartego GUI`, socketId);
+    }
+    
+    return true;
+}
+
 function displayBotStats(manager, socketId, botName) {
     const bot = manager.activeBots[botName];
     if (!bot) return;
@@ -1576,5 +1717,7 @@ module.exports = {
     executeAutoFish,
     executeGoTo,
     executeAttack,
-    executeStats
+    executeStats,
+    executeMoveToGui,
+    executeExitGui
 };

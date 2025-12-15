@@ -28,7 +28,9 @@ const {
     executeAutoFish,
     executeGoTo,
     executeAttack,
-    executeStats
+    executeStats,
+    executeMoveToGui,
+    executeExitGui
 } = require('./web-functions');
 
 const app = express();
@@ -268,12 +270,16 @@ class BotManager {
     }
     
     cleanupBotResources(bot, name) {
-        const intervals = ['jumpInterval', 'useInterval', 'walkInterval', 'autoEatInterval', 'followInterval', 'gotoInterval', 'attackInterval'];
+        const intervals = ['jumpInterval', 'useInterval', 'walkInterval', 'autoEatInterval', 'followInterval', 'attackInterval'];
         
         for (const interval of intervals) {
             if (bot[interval]) {
                 clearInterval(bot[interval]);
             }
+        }
+        
+        if (bot.pathfinder && bot.pathfinder.isMoving && bot.pathfinder.isMoving()) {
+            bot.pathfinder.setGoal(null);
         }
         
         if (bot.autoFishActive) {
@@ -362,17 +368,33 @@ class BotManager {
     }
     
     stopBot(name) {
-        if (!this.activeBots[name]) {
+        const isActive = this.activeBots[name];
+        const hasReconnect = this.reconnectFlags[name];
+        
+        if (!isActive && !hasReconnect) {
             this.log(`Bot '${name}' nie jest uruchomiony!`);
             return false;
         }
         
-        const bot = this.activeBots[name];
-        this.cleanupBotResources(bot, name);
+        if (hasReconnect) {
+            delete this.reconnectFlags[name];
+            delete this.reconnectAttempts[name];
+            delete this.reconnecting[name];
+            delete this.spawnFlags[name];
+            delete this.firstSpawn[name];
+            this.log(`Zatrzymano reconnect dla bota: ${name}`);
+        }
         
-        bot.quit();
-        delete this.activeBots[name];
-        this.log(`Zatrzymano bota: ${name}`);
+        if (isActive) {
+            const bot = this.activeBots[name];
+            this.cleanupBotResources(bot, name);
+            
+            bot.quit();
+            delete this.activeBots[name];
+            this.log(`Zatrzymano bota: ${name}`);
+        }
+        
+        delete this.botStates[name];
         this.io.emit('botList', this.getBotsList());
         return true;
     }
@@ -492,6 +514,14 @@ class BotManager {
     
     executeStats(socketId, botName) {
         return executeStats(this, socketId, botName);
+    }
+    
+    executeMoveToGui(socketId, botName, invSlot, guiSlot, amount = null) {
+        return executeMoveToGui(this, socketId, botName, invSlot, guiSlot, amount);
+    }
+    
+    executeExitGui(socketId, botName) {
+        return executeExitGui(this, socketId, botName);
     }
 }
 
@@ -674,10 +704,20 @@ io.on('connection', (socket) => {
                 manager.executeDropItem(socket.id, parts[1], parts[2]);
             }
         } else if (cmd === '.look') {
-            if (parts.length !== 4) {
-                socket.emit('log', 'Uzycie: .look <nazwa|*> <yaw> <pitch>');
-                socket.emit('log', 'Przyklad: .look bot1 0 0');
-                socket.emit('log', 'Przyklad: .look * 1.5 -0.5');
+            if (parts.length < 2) {
+                socket.emit('log', 'Uzycie: .look <nazwa|*> <yaw|kierunek> [pitch]');
+                socket.emit('log', 'Przyklad stopnie: .look bot1 0 0 (patrzy na wschod)');
+                socket.emit('log', 'Przyklad stopnie: .look bot1 90 0 (patrzy na polnoc)');
+                socket.emit('log', 'Przyklad stopnie: .look bot1 180 -45 (patrzy na zachod w gore)');
+                socket.emit('log', 'Przyklad kierunek: .look bot1 north (patrzy na polnoc)');
+                socket.emit('log', 'Dostepne kierunki: north, south, east, west, up, down');
+                socket.emit('log', '');
+                socket.emit('log', 'Pomoc YAW (poziomo - konwencja Mineflayer):');
+                socket.emit('log', '  0° = Wschod, 90° = Polnoc, 180° = Zachod, -90° = Poludnie');
+                socket.emit('log', 'Pomoc PITCH (pionowo):');
+                socket.emit('log', '  -90° = w gore, 0° = prosto, 90° = w dol');
+            } else if (parts.length === 3) {
+                manager.executeLook(socket.id, parts[1], parts[2], '0');
             } else {
                 manager.executeLook(socket.id, parts[1], parts[2], parts[3]);
             }
@@ -761,6 +801,35 @@ io.on('connection', (socket) => {
             } else {
                 manager.executeStats(socket.id, parts[1]);
             }
+        } else if (cmd === '.movetogui') {
+            if (parts.length < 4) {
+                socket.emit('log', 'Uzycie: .movetogui <nazwa|*> <slot_eq> <slot_gui> [-i <ilosc>]');
+                socket.emit('log', 'Przyklad: .movetogui bot1 44 5 - przenosi wszystkie itemy');
+                socket.emit('log', 'Przyklad: .movetogui bot1 44 5 -i 3 - przenosi 3 itemy');
+                socket.emit('log', 'Przyklad: .movetogui * 36 0 -i 1 - wszystkie boty po 1 itemie');
+                socket.emit('log', '');
+                socket.emit('log', 'Najpierw otworz GUI/skrzynke, potem uzyj .listitems aby zobaczyc sloty!');
+            } else {
+                const botName = parts[1];
+                const invSlot = parts[2];
+                const guiSlot = parts[3];
+                
+                let amount = null;
+                const iFlag = parts.indexOf('-i');
+                if (iFlag !== -1 && parts[iFlag + 1]) {
+                    amount = parts[iFlag + 1];
+                }
+                
+                manager.executeMoveToGui(socket.id, botName, invSlot, guiSlot, amount);
+            }
+        } else if (cmd === '.exitgui') {
+            if (parts.length !== 2) {
+                socket.emit('log', 'Uzycie: .exitgui <nazwa|*>');
+                socket.emit('log', 'Przyklad: .exitgui bot1 - zamyka GUI u bota');
+                socket.emit('log', 'Przyklad: .exitgui * - zamyka GUI u wszystkich botow');
+            } else {
+                manager.executeExitGui(socket.id, parts[1]);
+            }
         } else if (cmd === '.list') {
             const count = Object.keys(manager.bots).length;
             socket.emit('log', `Utworzone boty: ${count}`);
@@ -811,7 +880,9 @@ io.on('connection', (socket) => {
             socket.emit('log', '  .loopuse <nazwa|*>');
             socket.emit('log', '  .walk <nazwa|*> <forward|back|left|right>');
             socket.emit('log', '  .dropitem <nazwa|*> <slot>');
-            socket.emit('log', '  .look <nazwa|*> <yaw> <pitch>');
+            socket.emit('log', '  .look <nazwa|*> <yaw|kierunek> [pitch]');
+            socket.emit('log', '    Przyklad: .look bot1 90 0 (polnoc)');
+            socket.emit('log', '    Przyklad: .look bot1 north (polnoc)');
             socket.emit('log', '  .setslot <nazwa|*> <0-8>');
             socket.emit('log', '  .rightclick <nazwa|*>');
             socket.emit('log', '  .leftclick <nazwa|*>');
@@ -822,6 +893,8 @@ io.on('connection', (socket) => {
             socket.emit('log', '  .goto <nazwa|*> <x> <y> <z>');
             socket.emit('log', '  .attack <nazwa|*> <mob|player|all> <range>');
             socket.emit('log', '  .stats <nazwa|*>');
+            socket.emit('log', '  .movetogui <nazwa|*> <slot_eq> <slot_gui> [-i <ilosc>]');
+            socket.emit('log', '  .exitgui <nazwa|*>');
             socket.emit('log', '');
             socket.emit('log', 'Flagi startu:');
             socket.emit('log', '  -joinsend <wiadomosc> - Wiadomosc po dolaczeniu (1s)');
@@ -877,8 +950,12 @@ io.on('connection', (socket) => {
         } else if (trimmed.startsWith('.look ')) {
             const parts = trimmed.split(/\s+/);
             const botName = manager.logsModes[socket.id];
-            if (botName && parts[1] && parts[2]) {
-                manager.executeLook(socket.id, botName, parts[1], parts[2]);
+            if (botName && parts[1]) {
+                if (parts[2]) {
+                    manager.executeLook(socket.id, botName, parts[1], parts[2]);
+                } else {
+                    manager.executeLook(socket.id, botName, parts[1], '0');
+                }
             }
         } else if (trimmed.startsWith('.setslot ')) {
             const parts = trimmed.split(/\s+/);
@@ -934,6 +1011,22 @@ io.on('connection', (socket) => {
             const botName = manager.logsModes[socket.id];
             if (botName) {
                 manager.executeStats(socket.id, botName);
+            }
+        } else if (trimmed.startsWith('.movetogui ')) {
+            const parts = trimmed.split(/\s+/);
+            const botName = manager.logsModes[socket.id];
+            if (botName && parts[1] && parts[2]) {
+                let amount = null;
+                const iFlag = parts.indexOf('-i');
+                if (iFlag !== -1 && parts[iFlag + 1]) {
+                    amount = parts[iFlag + 1];
+                }
+                manager.executeMoveToGui(socket.id, botName, parts[1], parts[2], amount);
+            }
+        } else if (trimmed === '.exitgui') {
+            const botName = manager.logsModes[socket.id];
+            if (botName) {
+                manager.executeExitGui(socket.id, botName);
             }
         } else if (trimmed) {
             if (manager.settings.blockChat) {
