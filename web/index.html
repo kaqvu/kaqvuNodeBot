@@ -45,8 +45,7 @@
                 .goto &lt;nazwa|*&gt; &lt;x&gt; &lt;y&gt; &lt;z&gt;<br>
                 .attack &lt;nazwa|*&gt; &lt;mob|player|all&gt; &lt;range&gt;<br>
                 .stats &lt;nazwa|*&gt;<br>
-                .movetogui &lt;nazwa|*&gt; &lt;slot_eq&gt; &lt;slot_gui&gt; [-i &lt;ilosc&gt;]<br>
-                .exitgui &lt;nazwa|*&gt;<br>
+                .eqclick &lt;nazwa|*&gt; &lt;slot&gt; &lt;button&gt; &lt;mode&gt;<br>
                 <br>
                 <strong>Flagi startu:</strong><br>
                 -joinsend &lt;wiadomosc&gt;<br>
@@ -76,8 +75,8 @@
                 .logs bot1<br>
                 .look bot1 north<br>
                 .goto bot1 100 64 200<br>
-                .movetogui bot1 38 10 -i 5<br>
-                .exitgui bot1
+                .eqclick bot1 38 0 0<br>
+                .eqclick bot1 38 1 0
             </div>
         </div>
         

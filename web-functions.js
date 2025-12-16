@@ -800,7 +800,7 @@ function enterLogs(manager, socketId, botName) {
         manager.log(`Wpisz wiadomosc aby wyslac na chat wszystkich botow`, socketId);
         manager.log(`Komendy: .loopuse .walk <dir> .dropitem <slot> .look <yaw|kierunek> [pitch]`, socketId);
         manager.log(`Komendy: .setslot <0-8> .rightclick .leftclick .guiclick <slot>`, socketId);
-        manager.log(`Komendy: .movetogui <slot_eq> <slot_gui> [-i <ilosc>] .exitgui`, socketId);
+        manager.log(`Komendy: .eqclick <slot> <button> <mode>`, socketId);
         manager.log(`${'='.repeat(50)}\n`, socketId);
         manager.io.to(socketId).emit('logsMode', true);
         return true;
@@ -819,7 +819,7 @@ function enterLogs(manager, socketId, botName) {
     manager.log(`Wpisz wiadomosc aby wyslac na chat`, socketId);
     manager.log(`Komendy: .loopuse .walk <dir> .dropitem <slot> .look <yaw|kierunek> [pitch]`, socketId);
     manager.log(`Komendy: .setslot <0-8> .rightclick .leftclick .guiclick <slot>`, socketId);
-    manager.log(`Komendy: .movetogui <slot_eq> <slot_gui> [-i <ilosc>] .exitgui`, socketId);
+    manager.log(`Komendy: .eqclick <slot> <button> <mode>`, socketId);
     manager.log(`${'='.repeat(50)}\n`, socketId);
     manager.io.to(socketId).emit('logsMode', true);
     return true;
@@ -1484,22 +1484,17 @@ function executeStats(manager, socketId, botName) {
     return true;
 }
 
-function executeMoveToGui(manager, socketId, botName, invSlotStr, guiSlotStr, amount = null) {
-    const invSlot = parseInt(invSlotStr);
-    const guiSlot = parseInt(guiSlotStr);
+function executeEqClick(manager, socketId, botName, slotStr, buttonStr, modeStr) {
+    const slot = parseInt(slotStr);
+    const button = parseInt(buttonStr);
+    const mode = parseInt(modeStr);
     
-    if (isNaN(invSlot) || isNaN(guiSlot)) {
-        manager.log('Sloty musza byc liczbami!', socketId);
-        manager.log('Uzycie: .movetogui <nazwa|*> <slot_eq> <slot_gui> [-i <ilosc>]', socketId);
+    if (isNaN(slot) || isNaN(button) || isNaN(mode)) {
+        manager.log('Slot, button i mode musza byc liczbami!', socketId);
+        manager.log('Uzycie: .eqclick <nazwa|*> <slot> <button> <mode>', socketId);
+        manager.log('Button: 0=lewy, 1=prawy, 2=srodkowy', socketId);
+        manager.log('Mode: 0=normalny, 1=shift, 2=number key', socketId);
         return false;
-    }
-    
-    if (amount !== null) {
-        const amountNum = parseInt(amount);
-        if (isNaN(amountNum) || amountNum < 1) {
-            manager.log('Ilosc musi byc liczba wieksza od 0!', socketId);
-            return false;
-        }
     }
     
     if (botName === '*') {
@@ -1510,7 +1505,7 @@ function executeMoveToGui(manager, socketId, botName, invSlotStr, guiSlotStr, am
         }
         
         for (const name of activeBots) {
-            moveItemToGui(manager, socketId, name, invSlot, guiSlot, amount);
+            clickEqSlot(manager, socketId, name, slot, button, mode);
         }
         return true;
     }
@@ -1520,105 +1515,26 @@ function executeMoveToGui(manager, socketId, botName, invSlotStr, guiSlotStr, am
         return false;
     }
     
-    moveItemToGui(manager, socketId, botName, invSlot, guiSlot, amount);
+    clickEqSlot(manager, socketId, botName, slot, button, mode);
     return true;
 }
 
-function moveItemToGui(manager, socketId, botName, invSlot, guiSlot, amount) {
+function clickEqSlot(manager, socketId, botName, slot, button, mode) {
     const bot = manager.activeBots[botName];
-    
-    if (!bot.currentWindow || bot.currentWindow.type === 'minecraft:inventory') {
-        manager.log(`[${botName}] Brak otwartego GUI! Otworz skrzynke/GUI najpierw.`, socketId);
-        return false;
-    }
-    
-    const item = bot.inventory.slots[invSlot];
-    if (!item) {
-        manager.log(`[${botName}] Brak itemu w slocie ${invSlot}!`, socketId);
-        return false;
-    }
-    
-    const itemCount = item.count;
-    const moveAmount = amount !== null ? parseInt(amount) : itemCount;
-    
-    if (moveAmount > itemCount) {
-        manager.log(`[${botName}] Nie masz ${moveAmount}x ${item.name}! Masz tylko ${itemCount}x`, socketId);
-        return false;
-    }
     
     try {
-        if (moveAmount === itemCount) {
-            bot.clickWindow(invSlot, 0, 0).then(() => {
-                setTimeout(() => {
-                    bot.clickWindow(guiSlot, 0, 0).then(() => {
-                        manager.log(`[${botName}] Przeniesiono ${moveAmount}x ${item.name} ze slotu ${invSlot} do GUI slotu ${guiSlot}`, socketId);
-                    }).catch(err => {
-                        manager.log(`[${botName}] Blad klikania GUI: ${err.message}`, socketId);
-                    });
-                }, 150);
-            }).catch(err => {
-                manager.log(`[${botName}] Blad klikania inventory: ${err.message}`, socketId);
-            });
-        } else {
-            bot.clickWindow(invSlot, 1, 0).then(() => {
-                let clicks = 0;
-                const clickInterval = setInterval(() => {
-                    if (clicks < moveAmount) {
-                        bot.clickWindow(guiSlot, 1, 0).catch(() => {});
-                        clicks++;
-                    } else {
-                        clearInterval(clickInterval);
-                        setTimeout(() => {
-                            bot.clickWindow(invSlot, 0, 0).catch(() => {});
-                            manager.log(`[${botName}] Przeniesiono ${moveAmount}x ${item.name} ze slotu ${invSlot} do GUI slotu ${guiSlot}`, socketId);
-                        }, 100);
-                    }
-                }, 100);
-            }).catch(err => {
-                manager.log(`[${botName}] Blad podczas przenoszenia: ${err.message}`, socketId);
-            });
-        }
+        bot.clickWindow(slot, button, mode).then(() => {
+            const buttonName = button === 0 ? 'lewy' : button === 1 ? 'prawy' : 'srodkowy';
+            const modeName = mode === 0 ? 'normalny' : mode === 1 ? 'shift' : 'number key';
+            manager.log(`[${botName}] Kliknieto slot ${slot} (button: ${buttonName}, mode: ${modeName})`, socketId);
+        }).catch(err => {
+            manager.log(`[${botName}] Blad klikania: ${err.message}`, socketId);
+        });
         return true;
     } catch (err) {
-        manager.log(`[${botName}] Blad podczas przenoszenia: ${err.message}`, socketId);
+        manager.log(`[${botName}] Blad podczas klikania: ${err.message}`, socketId);
         return false;
     }
-}
-
-function executeExitGui(manager, socketId, botName) {
-    if (botName === '*') {
-        const activeBots = Object.keys(manager.activeBots);
-        if (activeBots.length === 0) {
-            manager.log('Brak aktywnych botow!', socketId);
-            return false;
-        }
-        
-        for (const name of activeBots) {
-            const bot = manager.activeBots[name];
-            if (bot.currentWindow && bot.currentWindow.type !== 'minecraft:inventory') {
-                bot.closeWindow(bot.currentWindow);
-                manager.log(`[${name}] Zamknieto GUI`, socketId);
-            } else {
-                manager.log(`[${name}] Brak otwartego GUI`, socketId);
-            }
-        }
-        return true;
-    }
-    
-    if (!manager.activeBots[botName]) {
-        manager.log(`Bot '${botName}' nie jest uruchomiony!`, socketId);
-        return false;
-    }
-    
-    const bot = manager.activeBots[botName];
-    if (bot.currentWindow && bot.currentWindow.type !== 'minecraft:inventory') {
-        bot.closeWindow(bot.currentWindow);
-        manager.log(`[${botName}] Zamknieto GUI`, socketId);
-    } else {
-        manager.log(`[${botName}] Brak otwartego GUI`, socketId);
-    }
-    
-    return true;
 }
 
 function displayBotStats(manager, socketId, botName) {
@@ -1735,6 +1651,5 @@ module.exports = {
     executeGoTo,
     executeAttack,
     executeStats,
-    executeMoveToGui,
-    executeExitGui
+    executeEqClick
 };
