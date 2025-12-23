@@ -511,7 +511,7 @@ io.on('connection', (socket) => {
     console.log('Nowy klient polaczony');
     
     socket.on('getInitialData', () => {
-        socket.emit('log', 'kaqvuNodeBot - Web Interface');
+        socket.emit('log', 'kaqvuConsole - Web Interface');
         socket.emit('log', '');
         socket.emit('botList', manager.getBotsList());
     });
@@ -748,7 +748,7 @@ io.on('connection', (socket) => {
             }
         } else if (cmd === '.clear') {
             socket.emit('clearConsole');
-            socket.emit('log', 'kaqvuNodeBot - Web Interface');
+            socket.emit('log', 'kaqvuConsole - Web Interface');
             socket.emit('log', '');
         } else if (cmd === '.blockmessages') {
             const status = await manager.toggleBlockMessages();
@@ -783,7 +783,7 @@ io.on('connection', (socket) => {
             manager.exitLogs(socket.id);
         } else if (trimmed === '.clear') {
             socket.emit('clearConsole');
-            socket.emit('log', 'kaqvuNodeBot - Web Interface');
+            socket.emit('log', 'kaqvuConsole - Web Interface');
             socket.emit('log', '');
         } else if (trimmed === '.listitems') {
             manager.listItems(socket.id);
@@ -879,7 +879,7 @@ io.on('connection', (socket) => {
 });
 
 server.listen(PORT, () => {
-    console.log(`\nkaqvuNodeBot - Web Interface`);
+    console.log(`\nkaqvuConsole - Web Interface`);
     console.log(`Server dziala na http://localhost:${PORT}`);
     console.log(`Otwórz przegladarke i przejdz do tego adresu\n`);
 });

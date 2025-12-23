@@ -1,7 +1,7 @@
 {
-  "name": "kaqvuNodeBot",
+  "name": "kaqvuConsole",
   "version": "5.48",
-  "description": "AFK Minecraft Bots managment",
+  "description": "AFK BOTS MANAGMENT",
   "main": "server.js",
   "scripts": {
     "start": "node web.js",
