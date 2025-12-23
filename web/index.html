@@ -33,19 +33,19 @@
                 .listitems &lt;nazwa|*&gt; [together]<br>
                 .loopuse &lt;nazwa|*&gt;<br>
                 .walk &lt;nazwa|*&gt; &lt;forward|back|left|right&gt;<br>
-                .dropitem &lt;nazwa|*&gt; &lt;slot&gt;<br>
+                .dropitem &lt;nazwa|*&gt; &lt;slot&gt;lt;slot 0-8&lt;slot&gt;gt;<br>
                 .look &lt;nazwa|*&gt; &lt;yaw|kierunek&gt; [pitch]<br>
                 .setslot &lt;nazwa|*&gt; &lt;0-8&gt;<br>
                 .rightclick &lt;nazwa|*&gt;<br>
                 .leftclick &lt;nazwa|*&gt;<br>
-                .guiclick &lt;nazwa|*&gt; &lt;slot&gt; &lt;right|left&gt; [shift]<br>
+                .guiclick &lt;nazwa|*&gt; &lt;slot&gt;lt;slot 0-8&lt;slot&gt;gt; &lt;right|left&gt; [shift]<br>
                 .autoeat &lt;nazwa|*&gt;<br>
                 .follow &lt;nazwa|*&gt; &lt;nick&gt;<br>
                 .autofish &lt;nazwa|*&gt;<br>
                 .goto &lt;nazwa|*&gt; &lt;x&gt; &lt;y&gt; &lt;z&gt;<br>
                 .attack &lt;nazwa|*&gt; &lt;mob|player|all&gt; &lt;range&gt;<br>
                 .stats &lt;nazwa|*&gt;<br>
-                .eqclick &lt;nazwa|*&gt; &lt;slot&gt; &lt;right|left&gt; [shift]<br>
+                .slotclick &lt;nazwa|*&gt; &lt;slot&gt;lt;slot 0-8&lt;slot&gt;gt; &lt;right|left&gt; [shift]<br>
                 <br>
                 <strong>Flagi startu:</strong><br>
                 -joinsend &lt;wiadomosc&gt;<br>
@@ -64,7 +64,7 @@
                 -setslot &lt;0-8&gt;<br>
                 -rightclick<br>
                 -leftclick<br>
-                -guiclick &lt;slot&gt; &lt;right|left&gt; [shift]<br>
+                -guiclick &lt;slot&gt;lt;slot 0-8&lt;slot&gt;gt; &lt;right|left&gt; [shift]<br>
                 <br>
                 <strong>Kierunki dla .look:</strong><br>
                 north, south, east, west, up, down<br>
@@ -75,8 +75,9 @@
                 .logs bot1<br>
                 .look bot1 north<br>
                 .goto bot1 100 64 200<br>
-                .eqclick bot1 38 right<br>
-                .eqclick bot1 38 left shift<br>
+                .slotclick bot1 3 right<br>
+                .slotclick bot1 3 left shift<br>
+                .slotclick bot1 -all left shift<br>
             </div>
         </div>
         

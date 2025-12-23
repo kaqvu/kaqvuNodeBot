@@ -101,8 +101,6 @@ function setupBotHandlers(manager, bot, name, flags) {
         
         handleAntiAFK(manager, bot, name, currentFlags);
         handleSneakAFK(manager, bot, name, currentFlags);
-        handleAutoFish(manager, bot, name, currentFlags);
-        handleAutoEat(manager, bot, name, currentFlags);
         handleSequenceFlags(manager, bot, name, currentFlags);
     });
     
@@ -167,7 +165,7 @@ function exitLogsForBot(manager, botName) {
     
     for (const socketId of socketsToExit) {
         delete manager.logsModes[socketId];
-        manager.log(`\nBot ${botName} zostal rozlaczony - wychodzenie z logow...\n`, socketId);
+        manager.log(`\nBot ${botName} rozlaczony\n`, socketId);
         manager.io.to(socketId).emit('logsMode', false);
     }
 }
@@ -232,71 +230,9 @@ function handleSneakAFK(manager, bot, name, flags) {
     }
 }
 
-function handleAutoFish(manager, bot, name, flags) {
-    if (flags.hasOwnProperty('-autofish')) {
-        startAutoFishing(manager, bot, name);
-    }
-}
-
-function handleAutoEat(manager, bot, name, flags) {
-    if (flags.hasOwnProperty('-autoeat')) {
-        const eatInterval = setInterval(() => {
-            if (!manager.activeBots[name]) {
-                clearInterval(eatInterval);
-                return;
-            }
-            
-            if (bot.food < 16) {
-                const foods = bot.inventory.items().filter(item => 
-                    item.name.includes('cooked') || 
-                    item.name.includes('bread') || 
-                    item.name.includes('apple') ||
-                    item.name.includes('carrot') ||
-                    item.name.includes('potato') ||
-                    item.name.includes('beef') ||
-                    item.name.includes('porkchop') ||
-                    item.name.includes('chicken') ||
-                    item.name.includes('mutton') ||
-                    item.name.includes('rabbit') ||
-                    item.name.includes('steak')
-                );
-                
-                if (foods.length > 0) {
-                    bot.equip(foods[0], 'hand').then(() => {
-                        bot.consume();
-                    }).catch(() => {});
-                }
-            }
-        }, 1000);
-        
-        bot.autoEatInterval = eatInterval;
-        manager.log(`[${name}] Auto eat wlaczony (je gdy < 8 glodkow)`);
-    }
-}
-
-function startAutoFishing(manager, bot, name) {
-    bot.autoFishActive = true;
-    
-    const fishingListener = () => {
-        if (!bot.autoFishActive || !manager.activeBots[name]) return;
-        
-        setTimeout(() => {
-            if (bot.autoFishActive && manager.activeBots[name]) {
-                bot.activateItem();
-            }
-        }, 500);
-    };
-    
-    bot.on('playerCollect', fishingListener);
-    bot.fishingListener = fishingListener;
-    
-    bot.activateItem();
-    manager.log(`[${name}] Auto fishing wlaczony`);
-}
-
 function handleSequenceFlags(manager, bot, name, flags) {
     const sequenceFlags = [];
-    const flagOrder = ['-setslot', '-rightclick', '-leftclick', '-guiclick'];
+    const flagOrder = ['-setslot', '-rightclick', '-leftclick', '-guiclick', '-slotclick'];
     
     for (const flag of flagOrder) {
         if (flags[flag] !== undefined) {
@@ -351,6 +287,32 @@ function handleSequenceFlags(manager, bot, name, flags) {
                 }, delay);
                 delay += customDelay;
             }
+        } else if (flag === '-slotclick') {
+            const slotParams = flags['-slotclick'].split(' ');
+            const slot = parseInt(slotParams[0]);
+            const button = slotParams[1] === 'right' ? 1 : 0;
+            const mode = slotParams[2] === 'shift' ? 1 : 0;
+            
+            if (!isNaN(slot) && slot >= 0 && slot <= 8) {
+                setTimeout(() => {
+                    if (manager.activeBots[name]) {
+                        try {
+                            if (bot.currentWindow) {
+                                const slotIndex = bot.currentWindow.slots.length - 9 + slot;
+                                bot.clickWindow(slotIndex, button, mode);
+                                const buttonName = button === 0 ? 'left' : 'right';
+                                const modeName = mode === 1 ? ' + shift' : '';
+                                manager.log(`[${name}] Kliknieto slot ${slot} (indeks: ${slotIndex}) (${buttonName}${modeName})`);
+                            } else {
+                                manager.log(`[${name}] Brak otwartego okna!`);
+                            }
+                        } catch (err) {
+                            manager.log(`[${name}] Blad przy klikaniu: ${err.message}`);
+                        }
+                    }
+                }, delay);
+                delay += customDelay;
+            }
         }
     }
 }
@@ -392,9 +354,6 @@ function cleanupBot(manager, bot, name) {
     if (bot.walkInterval) {
         clearInterval(bot.walkInterval);
     }
-    if (bot.autoEatInterval) {
-        clearInterval(bot.autoEatInterval);
-    }
     if (bot.followInterval) {
         clearInterval(bot.followInterval);
     }
@@ -403,12 +362,6 @@ function cleanupBot(manager, bot, name) {
     }
     if (bot.pathfinder && bot.pathfinder.isMoving && bot.pathfinder.isMoving()) {
         bot.pathfinder.setGoal(null);
-    }
-    if (bot.autoFishActive) {
-        bot.autoFishActive = false;
-        if (bot.fishingListener) {
-            bot.removeListener('playerCollect', bot.fishingListener);
-        }
     }
 }
 
@@ -605,11 +558,7 @@ function executeLook(manager, socketId, botName, yawStr, pitchStr) {
         const pitchInput = parseFloat(pitchStr);
         
         if (isNaN(yawInput) || isNaN(pitchInput)) {
-            manager.log('Yaw i pitch musza byc liczbami lub kierunkiem!', socketId);
-            manager.log('Kierunki: north, south, east, west, up, down', socketId);
-            manager.log('Lub podaj liczby w stopniach (konwencja Mineflayer):', socketId);
-            manager.log('  YAW: 0=East, 90=North, 180=West, -90=South', socketId);
-            manager.log('  PITCH: -90=Up, 0=Straight, 90=Down', socketId);
+            manager.log('Yaw i pitch musza byc liczbami lub kierunkiem (north, south, east, west, up, down)', socketId);
             return false;
         }
         
@@ -811,15 +760,8 @@ function enterLogs(manager, socketId, botName) {
         }
         
         manager.logsModes[socketId] = '*';
-        manager.log(`\n${'='.repeat(50)}`, socketId);
-        manager.log(`LOGI WSZYSTKICH BOTOW (${activeBots.length})`, socketId);
-        manager.log(`Wpisz '.exit' aby wyjsc z logow`, socketId);
-        manager.log(`Wpisz '.listitems' aby zobaczyc ekwipunek`, socketId);
-        manager.log(`Wpisz wiadomosc aby wyslac na chat wszystkich botow`, socketId);
-        manager.log(`Komendy: .loopuse .walk <dir> .dropitem <slot> .look <yaw|kierunek> [pitch]`, socketId);
-        manager.log(`Komendy: .setslot <0-8> .rightclick .leftclick .guiclick <slot>`, socketId);
-        manager.log(`Komendy: .eqclick <slot> <button> <mode>`, socketId);
-        manager.log(`${'='.repeat(50)}\n`, socketId);
+        manager.log(`\nLogi wszystkich botow (${activeBots.length})`, socketId);
+        manager.log(`Wpisz '.exit' aby wyjsc\n`, socketId);
         manager.io.to(socketId).emit('logsMode', true);
         return true;
     }
@@ -830,15 +772,8 @@ function enterLogs(manager, socketId, botName) {
     }
     
     manager.logsModes[socketId] = botName;
-    manager.log(`\n${'='.repeat(50)}`, socketId);
-    manager.log(`LOGI BOTA: ${botName}`, socketId);
-    manager.log(`Wpisz '.exit' aby wyjsc z logow`, socketId);
-    manager.log(`Wpisz '.listitems' aby zobaczyc ekwipunek`, socketId);
-    manager.log(`Wpisz wiadomosc aby wyslac na chat`, socketId);
-    manager.log(`Komendy: .loopuse .walk <dir> .dropitem <slot> .look <yaw|kierunek> [pitch]`, socketId);
-    manager.log(`Komendy: .setslot <0-8> .rightclick .leftclick .guiclick <slot>`, socketId);
-    manager.log(`Komendy: .eqclick <slot> <button> <mode>`, socketId);
-    manager.log(`${'='.repeat(50)}\n`, socketId);
+    manager.log(`\nLogi bota: ${botName}`, socketId);
+    manager.log(`Wpisz '.exit' aby wyjsc\n`, socketId);
     manager.io.to(socketId).emit('logsMode', true);
     return true;
 }
@@ -847,11 +782,7 @@ function exitLogs(manager, socketId) {
     const botName = manager.logsModes[socketId];
     if (botName) {
         delete manager.logsModes[socketId];
-        if (botName === '*') {
-            manager.log(`\nWychodzenie z logow wszystkich botow...\n`, socketId);
-        } else {
-            manager.log(`\nWychodzenie z logow bota ${botName}...\n`, socketId);
-        }
+        manager.log(`\nWychodzisz z logow\n`, socketId);
     }
     manager.io.to(socketId).emit('logsMode', false);
 }
@@ -1028,106 +959,6 @@ function displayBotInventory(manager, socketId, botName) {
     manager.log(`${'='.repeat(50)}\n`, socketId);
 }
 
-function executeAutoEat(manager, socketId, botName) {
-    if (botName === '*') {
-        const activeBots = Object.keys(manager.activeBots);
-        if (activeBots.length === 0) {
-            manager.log('Brak aktywnych botow!', socketId);
-            return false;
-        }
-        
-        for (const name of activeBots) {
-            const bot = manager.activeBots[name];
-            
-            if (bot.autoEatInterval) {
-                clearInterval(bot.autoEatInterval);
-                bot.autoEatInterval = null;
-                manager.log(`[${name}] Auto eat wylaczony`, socketId);
-            } else {
-                const eatInterval = setInterval(() => {
-                    if (!manager.activeBots[name]) {
-                        clearInterval(eatInterval);
-                        return;
-                    }
-                    
-                    if (bot.food < 16) {
-                        const foods = bot.inventory.items().filter(item => 
-                            item.name.includes('cooked') || 
-                            item.name.includes('bread') || 
-                            item.name.includes('apple') ||
-                            item.name.includes('carrot') ||
-                            item.name.includes('potato') ||
-                            item.name.includes('beef') ||
-                            item.name.includes('porkchop') ||
-                            item.name.includes('chicken') ||
-                            item.name.includes('mutton') ||
-                            item.name.includes('rabbit') ||
-                            item.name.includes('steak')
-                        );
-                        
-                        if (foods.length > 0) {
-                            bot.equip(foods[0], 'hand').then(() => {
-                                bot.consume();
-                            }).catch(() => {});
-                        }
-                    }
-                }, 1000);
-                
-                bot.autoEatInterval = eatInterval;
-                manager.log(`[${name}] Auto eat wlaczony (je gdy < 8 glodkow)`, socketId);
-            }
-        }
-        return true;
-    }
-    
-    if (!manager.activeBots[botName]) {
-        manager.log(`Bot '${botName}' nie jest uruchomiony!`, socketId);
-        return false;
-    }
-    
-    const bot = manager.activeBots[botName];
-    
-    if (bot.autoEatInterval) {
-        clearInterval(bot.autoEatInterval);
-        bot.autoEatInterval = null;
-        manager.log(`[${botName}] Auto eat wylaczony`, socketId);
-    } else {
-        const eatInterval = setInterval(() => {
-            if (!manager.activeBots[botName]) {
-                clearInterval(eatInterval);
-                return;
-            }
-            
-            if (bot.food < 16) {
-                const foods = bot.inventory.items().filter(item => 
-                    item.name.includes('cooked') || 
-                    item.name.includes('bread') || 
-                    item.name.includes('apple') ||
-                    item.name.includes('carrot') ||
-                    item.name.includes('potato') ||
-                    item.name.includes('beef') ||
-                    item.name.includes('porkchop') ||
-                    item.name.includes('chicken') ||
-                    item.name.includes('mutton') ||
-                    item.name.includes('rabbit') ||
-                    item.name.includes('steak')
-                );
-                
-                if (foods.length > 0) {
-                    bot.equip(foods[0], 'hand').then(() => {
-                        bot.consume();
-                    }).catch(() => {});
-                }
-            }
-        }, 1000);
-        
-        bot.autoEatInterval = eatInterval;
-        manager.log(`[${botName}] Auto eat wlaczony (je gdy < 8 glodkow)`, socketId);
-    }
-    
-    return true;
-}
-
 function executeFollow(manager, socketId, botName, targetPlayer) {
     if (botName === '*') {
         const activeBots = Object.keys(manager.activeBots);
@@ -1218,50 +1049,6 @@ function executeFollow(manager, socketId, botName, targetPlayer) {
         
         bot.followInterval = followInterval;
         manager.log(`[${botName}] Follow wlaczony (cel: ${targetPlayer})`, socketId);
-    }
-    
-    return true;
-}
-
-function executeAutoFish(manager, socketId, botName) {
-    if (botName === '*') {
-        const activeBots = Object.keys(manager.activeBots);
-        if (activeBots.length === 0) {
-            manager.log('Brak aktywnych botow!', socketId);
-            return false;
-        }
-        
-        for (const name of activeBots) {
-            const bot = manager.activeBots[name];
-            
-            if (bot.autoFishActive) {
-                bot.autoFishActive = false;
-                if (bot.fishingListener) {
-                    bot.removeListener('playerCollect', bot.fishingListener);
-                }
-                manager.log(`[${name}] Auto fishing wylaczony`, socketId);
-            } else {
-                startAutoFishing(manager, bot, name);
-            }
-        }
-        return true;
-    }
-    
-    if (!manager.activeBots[botName]) {
-        manager.log(`Bot '${botName}' nie jest uruchomiony!`, socketId);
-        return false;
-    }
-    
-    const bot = manager.activeBots[botName];
-    
-    if (bot.autoFishActive) {
-        bot.autoFishActive = false;
-        if (bot.fishingListener) {
-            bot.removeListener('playerCollect', bot.fishingListener);
-        }
-        manager.log(`[${botName}] Auto fishing wylaczony`, socketId);
-    } else {
-        startAutoFishing(manager, bot, botName);
     }
     
     return true;
@@ -1502,16 +1289,115 @@ function executeStats(manager, socketId, botName) {
     return true;
 }
 
-function executeEqClick(manager, socketId, botName, slotStr, buttonStr, shiftStr) {
+function displayBotStats(manager, socketId, botName) {
+    const bot = manager.activeBots[botName];
+    if (!bot) return;
+    
+    const pos = bot.entity.position;
+    const health = bot.health || 0;
+    const food = bot.food || 0;
+    const dimension = bot.game ? bot.game.dimension : 'unknown';
+    
+    manager.log(`\n${'='.repeat(50)}`, socketId);
+    manager.log(`STATYSTYKI BOTA: ${botName}`, socketId);
+    manager.log(`${'='.repeat(50)}`, socketId);
+    manager.log(`HP: ${health}/20`, socketId);
+    manager.log(`Glod: ${food}/20`, socketId);
+    manager.log(`Pozycja: X=${pos.x.toFixed(2)} Y=${pos.y.toFixed(2)} Z=${pos.z.toFixed(2)}`, socketId);
+    manager.log(`Wymiar: ${dimension}`, socketId);
+    manager.log(`${'='.repeat(50)}\n`, socketId);
+}
+
+function executeSlotClick(manager, socketId, botName, slotStr, buttonStr, shiftStr) {
+    // Sprawdź czy to -all
+    if (slotStr === '-all') {
+        const buttonLower = buttonStr ? buttonStr.toLowerCase() : 'left';
+        let button;
+        
+        if (buttonLower === 'left') {
+            button = 0;
+        } else if (buttonLower === 'right') {
+            button = 1;
+        } else {
+            manager.log('Button musi byc: left lub right', socketId);
+            return false;
+        }
+        
+        const mode = shiftStr && shiftStr.toLowerCase() === 'shift' ? 1 : 0;
+        
+        if (botName === '*') {
+            const activeBots = Object.keys(manager.activeBots);
+            if (activeBots.length === 0) {
+                manager.log('Brak aktywnych botow!', socketId);
+                return false;
+            }
+            
+            for (const name of activeBots) {
+                const bot = manager.activeBots[name];
+                
+                // Klikaj wszystkie sloty 0-8 z delay 1s
+                for (let slot = 0; slot <= 8; slot++) {
+                    setTimeout(() => {
+                        if (manager.activeBots[name]) {
+                            try {
+                                if (bot.currentWindow) {
+                                    const slotIndex = bot.currentWindow.slots.length - 9 + slot;
+                                    bot.clickWindow(slotIndex, button, mode);
+                                    const buttonName = button === 0 ? 'left' : 'right';
+                                    const modeName = mode === 1 ? ' + shift' : '';
+                                    manager.log(`[${name}] Kliknieto slot ${slot} (indeks: ${slotIndex}) (${buttonName}${modeName})`, socketId);
+                                } else {
+                                    manager.log(`[${name}] Brak otwartego okna!`, socketId);
+                                }
+                            } catch (err) {
+                                manager.log(`[${name}] Blad przy klikaniu: ${err.message}`, socketId);
+                            }
+                        }
+                    }, slot * 1000);
+                }
+            }
+            return true;
+        }
+        
+        if (!manager.activeBots[botName]) {
+            manager.log(`Bot '${botName}' nie jest uruchomiony!`, socketId);
+            return false;
+        }
+        
+        const bot = manager.activeBots[botName];
+        
+        // Klikaj wszystkie sloty 0-8 z delay 1s
+        for (let slot = 0; slot <= 8; slot++) {
+            setTimeout(() => {
+                if (manager.activeBots[botName]) {
+                    try {
+                        if (bot.currentWindow) {
+                            const slotIndex = bot.currentWindow.slots.length - 9 + slot;
+                            bot.clickWindow(slotIndex, button, mode);
+                            const buttonName = button === 0 ? 'left' : 'right';
+                            const modeName = mode === 1 ? ' + shift' : '';
+                            manager.log(`[${botName}] Kliknieto slot ${slot} (indeks: ${slotIndex}) (${buttonName}${modeName})`, socketId);
+                        } else {
+                            manager.log(`[${botName}] Brak otwartego okna!`, socketId);
+                        }
+                    } catch (err) {
+                        manager.log(`[${botName}] Blad przy klikaniu: ${err.message}`, socketId);
+                    }
+                }
+            }, slot * 1000);
+        }
+        return true;
+    }
+    
+    // Normalny tryb - pojedynczy slot
     const slot = parseInt(slotStr);
     
-    if (isNaN(slot)) {
-        manager.log('Slot musi byc liczba!', socketId);
-        manager.log('Uzycie: .eqclick <nazwa|*> <slot> <left|right> [shift]', socketId);
+    if (isNaN(slot) || slot < 0 || slot > 8) {
+        manager.log('Slot musi byc liczba od 0 do 8 (quickbar)!', socketId);
         return false;
     }
     
-    const buttonLower = buttonStr.toLowerCase();
+    const buttonLower = buttonStr ? buttonStr.toLowerCase() : 'left';
     let button;
     
     if (buttonLower === 'left') {
@@ -1533,7 +1419,21 @@ function executeEqClick(manager, socketId, botName, slotStr, buttonStr, shiftStr
         }
         
         for (const name of activeBots) {
-            clickEqSlot(manager, socketId, name, slot, button, mode);
+            const bot = manager.activeBots[name];
+            try {
+                if (bot.currentWindow) {
+                    // Oblicz indeks - ostatnie 9 slotów to quickbar (0-8)
+                    const slotIndex = bot.currentWindow.slots.length - 9 + slot;
+                    bot.clickWindow(slotIndex, button, mode);
+                    const buttonName = button === 0 ? 'left' : 'right';
+                    const modeName = mode === 1 ? ' + shift' : '';
+                    manager.log(`[${name}] Kliknieto slot ${slot} (indeks: ${slotIndex}) (${buttonName}${modeName})`, socketId);
+                } else {
+                    manager.log(`[${name}] Brak otwartego okna!`, socketId);
+                }
+            } catch (err) {
+                manager.log(`[${name}] Blad przy klikaniu: ${err.message}`, socketId);
+            }
         }
         return true;
     }
@@ -1543,68 +1443,23 @@ function executeEqClick(manager, socketId, botName, slotStr, buttonStr, shiftStr
         return false;
     }
     
-    clickEqSlot(manager, socketId, botName, slot, button, mode);
-    return true;
-}
-
-function clickEqSlot(manager, socketId, botName, slot, button, mode) {
     const bot = manager.activeBots[botName];
-    
     try {
-        if (button === 0) {
-            // Lewy przycisk
-            if (mode === 1) {
-                bot.clickWindow(slot, 0, 1).then(() => {
-                    manager.log(`[${botName}] Kliknieto slot ${slot} (left + shift)`, socketId);
-                }).catch(err => {
-                    manager.log(`[${botName}] Blad klikania: ${err.message}`, socketId);
-                });
-            } else {
-                bot.clickWindow(slot, 0, 0).then(() => {
-                    manager.log(`[${botName}] Kliknieto slot ${slot} (left)`, socketId);
-                }).catch(err => {
-                    manager.log(`[${botName}] Blad klikania: ${err.message}`, socketId);
-                });
-            }
+        if (bot.currentWindow) {
+            // Oblicz indeks - ostatnie 9 slotów to quickbar (0-8)
+            const slotIndex = bot.currentWindow.slots.length - 9 + slot;
+            bot.clickWindow(slotIndex, button, mode);
+            const buttonName = button === 0 ? 'left' : 'right';
+            const modeName = mode === 1 ? ' + shift' : '';
+            manager.log(`[${botName}] Kliknieto slot ${slot} (indeks: ${slotIndex}) (${buttonName}${modeName})`, socketId);
         } else {
-            if (mode === 1) {
-                bot.clickWindow(slot, 1, 1).then(() => {
-                    manager.log(`[${botName}] Kliknieto slot ${slot} (right + shift)`, socketId);
-                }).catch(err => {
-                    manager.log(`[${botName}] Blad klikania: ${err.message}`, socketId);
-                });
-            } else {
-                bot.clickWindow(slot, 1, 0).then(() => {
-                    manager.log(`[${botName}] Kliknieto slot ${slot} (right)`, socketId);
-                }).catch(err => {
-                    manager.log(`[${botName}] Blad klikania: ${err.message}`, socketId);
-                });
-            }
+            manager.log(`[${botName}] Brak otwartego okna!`, socketId);
         }
-        return true;
     } catch (err) {
-        manager.log(`[${botName}] Blad podczas klikania: ${err.message}`, socketId);
-        return false;
+        manager.log(`[${botName}] Blad przy klikaniu: ${err.message}`, socketId);
     }
-}
-
-function displayBotStats(manager, socketId, botName) {
-    const bot = manager.activeBots[botName];
-    if (!bot) return;
     
-    const pos = bot.entity.position;
-    const health = bot.health || 0;
-    const food = bot.food || 0;
-    const dimension = bot.game ? bot.game.dimension : 'unknown';
-    
-    manager.log(`\n${'='.repeat(50)}`, socketId);
-    manager.log(`STATYSTYKI BOTA: ${botName}`, socketId);
-    manager.log(`${'='.repeat(50)}`, socketId);
-    manager.log(`HP: ${health}/20`, socketId);
-    manager.log(`Glod: ${food}/20`, socketId);
-    manager.log(`Pozycja: X=${pos.x.toFixed(2)} Y=${pos.y.toFixed(2)} Z=${pos.z.toFixed(2)}`, socketId);
-    manager.log(`Wymiar: ${dimension}`, socketId);
-    manager.log(`${'='.repeat(50)}\n`, socketId);
+    return true;
 }
 
 function displayCombinedInventory(manager, socketId, botNames) {
@@ -1696,11 +1551,9 @@ module.exports = {
     executeRightClick,
     executeLeftClick,
     executeGuiClick,
-    executeAutoEat,
     executeFollow,
-    executeAutoFish,
     executeGoTo,
     executeAttack,
     executeStats,
-    executeEqClick
+    executeSlotClick
 };

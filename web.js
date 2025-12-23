@@ -23,13 +23,11 @@ const {
     executeRightClick,
     executeLeftClick,
     executeGuiClick,
-    executeAutoEat,
     executeFollow,
-    executeAutoFish,
     executeGoTo,
     executeAttack,
     executeStats,
-    executeEqClick
+    executeSlotClick
 } = require('./web-functions');
 
 const app = express();
@@ -43,7 +41,7 @@ const CONSTANTS = {
     BOT_START_DELAY: 3000,
     MAX_RANDOM_BOTS: 1000,
     DEFAULT_PORT: 25565,
-    FLAGS: ['-joinsend', '-reconnect', '-maxreconnect', '-jumpafk', '-sneakafk', '-delayflag', '-setslot', '-rightclick', '-leftclick', '-guiclick', '-autofish', '-autoeat', '-nowifi']
+    FLAGS: ['-joinsend', '-reconnect', '-maxreconnect', '-jumpafk', '-sneakafk', '-delayflag', '-setslot', '-rightclick', '-leftclick', '-guiclick', '-slotclick', '-nowifi']
 };
 
 class BotManager {
@@ -269,7 +267,7 @@ class BotManager {
     }
     
     cleanupBotResources(bot, name) {
-        const intervals = ['jumpInterval', 'useInterval', 'walkInterval', 'autoEatInterval', 'followInterval', 'attackInterval'];
+        const intervals = ['jumpInterval', 'useInterval', 'walkInterval', 'followInterval', 'attackInterval'];
         
         for (const interval of intervals) {
             if (bot[interval]) {
@@ -279,13 +277,6 @@ class BotManager {
         
         if (bot.pathfinder && bot.pathfinder.isMoving && bot.pathfinder.isMoving()) {
             bot.pathfinder.setGoal(null);
-        }
-        
-        if (bot.autoFishActive) {
-            bot.autoFishActive = false;
-            if (bot.fishingListener) {
-                bot.removeListener('playerCollect', bot.fishingListener);
-            }
         }
         
         delete this.reconnectFlags[name];
@@ -491,16 +482,8 @@ class BotManager {
         return executeGuiClick(this, socketId, botName, slot, button, shift);
     }
     
-    executeAutoEat(socketId, botName) {
-        return executeAutoEat(this, socketId, botName);
-    }
-    
     executeFollow(socketId, botName, targetPlayer) {
         return executeFollow(this, socketId, botName, targetPlayer);
-    }
-    
-    executeAutoFish(socketId, botName) {
-        return executeAutoFish(this, socketId, botName);
     }
     
     executeGoTo(socketId, botName, x, y, z) {
@@ -515,8 +498,8 @@ class BotManager {
         return executeStats(this, socketId, botName);
     }
     
-    executeEqClick(socketId, botName, slot, button, shift) {
-        return executeEqClick(this, socketId, botName, slot, button, shift);
+    executeSlotClick(socketId, botName, slot, button, shift) {
+        return executeSlotClick(this, socketId, botName, slot, button, shift);
     }
 }
 
@@ -569,8 +552,6 @@ io.on('connection', (socket) => {
                 socket.emit('log', '  -jumpafk:<sekundy> - Jump przez X sekund po spawnie');
                 socket.emit('log', '  -sneakafk - Anti-AFK sneak (ciagle shift)');
                 socket.emit('log', '  -sneakafk:<sekundy> - Sneak przez X sekund po spawnie');
-                socket.emit('log', '  -autofish - Auto lowienie ryb po spawnie');
-                socket.emit('log', '  -autoeat - Auto jedzenie po spawnie');
                 socket.emit('log', '  -nowifi - Pomija sprawdzanie internetu');
                 socket.emit('log', '');
                 socket.emit('log', 'Flagi kolejnosciowe:');
@@ -666,9 +647,6 @@ io.on('connection', (socket) => {
         } else if (cmd === '.listitems') {
             if (parts.length < 2) {
                 socket.emit('log', 'Uzycie: .listitems <nazwa|*> [together]');
-                socket.emit('log', 'Przyklad: .listitems kaqvu_x1');
-                socket.emit('log', 'Przyklad: .listitems * - pokazuje wszystkie boty oddzielnie');
-                socket.emit('log', 'Przyklad: .listitems * together - laczy itemy wszystkich botow');
             } else {
                 const botName = parts[1];
                 const together = parts[2] === 'together';
@@ -677,40 +655,24 @@ io.on('connection', (socket) => {
         } else if (cmd === '.loopuse') {
             if (parts.length !== 2) {
                 socket.emit('log', 'Uzycie: .loopuse <nazwa|*>');
-                socket.emit('log', 'Przyklad: .loopuse bot1');
-                socket.emit('log', 'Przyklad: .loopuse * - wszystkie boty');
             } else {
                 manager.executeLoopUse(socket.id, parts[1]);
             }
         } else if (cmd === '.walk') {
             if (parts.length !== 3) {
                 socket.emit('log', 'Uzycie: .walk <nazwa|*> <forward|back|left|right>');
-                socket.emit('log', 'Przyklad: .walk bot1 forward');
-                socket.emit('log', 'Przyklad: .walk * back');
             } else {
                 manager.executeWalk(socket.id, parts[1], parts[2]);
             }
         } else if (cmd === '.dropitem') {
             if (parts.length !== 3) {
                 socket.emit('log', 'Uzycie: .dropitem <nazwa|*> <slot>');
-                socket.emit('log', 'Przyklad: .dropitem bot1 36');
-                socket.emit('log', 'Przyklad: .dropitem * 0');
             } else {
                 manager.executeDropItem(socket.id, parts[1], parts[2]);
             }
         } else if (cmd === '.look') {
             if (parts.length < 2) {
                 socket.emit('log', 'Uzycie: .look <nazwa|*> <yaw|kierunek> [pitch]');
-                socket.emit('log', 'Przyklad stopnie: .look bot1 0 0 (patrzy na wschod)');
-                socket.emit('log', 'Przyklad stopnie: .look bot1 90 0 (patrzy na polnoc)');
-                socket.emit('log', 'Przyklad stopnie: .look bot1 180 -45 (patrzy na zachod w gore)');
-                socket.emit('log', 'Przyklad kierunek: .look bot1 north (patrzy na polnoc)');
-                socket.emit('log', 'Dostepne kierunki: north, south, east, west, up, down');
-                socket.emit('log', '');
-                socket.emit('log', 'Pomoc YAW (poziomo - konwencja Mineflayer):');
-                socket.emit('log', '  0° = Wschod, 90° = Polnoc, 180° = Zachod, -90° = Poludnie');
-                socket.emit('log', 'Pomoc PITCH (pionowo):');
-                socket.emit('log', '  -90° = w gore, 0° = prosto, 90° = w dol');
             } else if (parts.length === 3) {
                 manager.executeLook(socket.id, parts[1], parts[2], '0');
             } else {
@@ -719,94 +681,56 @@ io.on('connection', (socket) => {
         } else if (cmd === '.setslot') {
             if (parts.length !== 3) {
                 socket.emit('log', 'Uzycie: .setslot <nazwa|*> <0-8>');
-                socket.emit('log', 'Przyklad: .setslot bot1 0');
-                socket.emit('log', 'Przyklad: .setslot * 5');
             } else {
                 manager.executeSetSlot(socket.id, parts[1], parts[2]);
             }
         } else if (cmd === '.rightclick') {
             if (parts.length !== 2) {
                 socket.emit('log', 'Uzycie: .rightclick <nazwa|*>');
-                socket.emit('log', 'Przyklad: .rightclick bot1');
-                socket.emit('log', 'Przyklad: .rightclick *');
             } else {
                 manager.executeRightClick(socket.id, parts[1]);
             }
         } else if (cmd === '.leftclick') {
             if (parts.length !== 2) {
                 socket.emit('log', 'Uzycie: .leftclick <nazwa|*>');
-                socket.emit('log', 'Przyklad: .leftclick bot1');
-                socket.emit('log', 'Przyklad: .leftclick *');
             } else {
                 manager.executeLeftClick(socket.id, parts[1]);
             }
         } else if (cmd === '.guiclick') {
             if (parts.length < 3) {
                 socket.emit('log', 'Uzycie: .guiclick <nazwa|*> <slot> <left|right> [shift]');
-                socket.emit('log', 'Przyklad: .guiclick bot1 10 left - kliknie lewy przycisk');
-                socket.emit('log', 'Przyklad: .guiclick bot1 10 right - kliknie prawy przycisk');
-                socket.emit('log', 'Przyklad: .guiclick * 0 left shift - lewy + shift');
             } else {
                 manager.executeGuiClick(socket.id, parts[1], parts[2], parts[3], parts[4]);
-            }
-        } else if (cmd === '.autoeat') {
-            if (parts.length !== 2) {
-                socket.emit('log', 'Uzycie: .autoeat <nazwa|*>');
-                socket.emit('log', 'Przyklad: .autoeat bot1');
-                socket.emit('log', 'Przyklad: .autoeat *');
-            } else {
-                manager.executeAutoEat(socket.id, parts[1]);
             }
         } else if (cmd === '.follow') {
             if (parts.length !== 3) {
                 socket.emit('log', 'Uzycie: .follow <nazwa|*> <nick gracza>');
-                socket.emit('log', 'Przyklad: .follow bot1 kaqvu');
-                socket.emit('log', 'Przyklad: .follow * Notch');
             } else {
                 manager.executeFollow(socket.id, parts[1], parts[2]);
-            }
-        } else if (cmd === '.autofish') {
-            if (parts.length !== 2) {
-                socket.emit('log', 'Uzycie: .autofish <nazwa|*>');
-                socket.emit('log', 'Przyklad: .autofish bot1');
-                socket.emit('log', 'Przyklad: .autofish *');
-            } else {
-                manager.executeAutoFish(socket.id, parts[1]);
             }
         } else if (cmd === '.goto') {
             if (parts.length !== 5) {
                 socket.emit('log', 'Uzycie: .goto <nazwa|*> <x> <y> <z>');
-                socket.emit('log', 'Przyklad: .goto bot1 100 64 200');
-                socket.emit('log', 'Przyklad: .goto * 0 70 0');
             } else {
                 manager.executeGoTo(socket.id, parts[1], parts[2], parts[3], parts[4]);
             }
         } else if (cmd === '.attack') {
             if (parts.length !== 4) {
                 socket.emit('log', 'Uzycie: .attack <nazwa|*> <mob|player|all> <range>');
-                socket.emit('log', 'Przyklad: .attack bot1 mob 4');
-                socket.emit('log', 'Przyklad: .attack * player 5');
             } else {
                 manager.executeAttack(socket.id, parts[1], parts[2], parts[3]);
             }
         } else if (cmd === '.stats') {
             if (parts.length !== 2) {
                 socket.emit('log', 'Uzycie: .stats <nazwa|*>');
-                socket.emit('log', 'Przyklad: .stats bot1');
-                socket.emit('log', 'Przyklad: .stats *');
             } else {
                 manager.executeStats(socket.id, parts[1]);
             }
-        } else if (cmd === '.eqclick') {
-            if (parts.length < 4) {
-                socket.emit('log', 'Uzycie: .eqclick <nazwa|*> <slot> <left|right> [shift]');
-                socket.emit('log', 'Przyklad: .eqclick bot1 38 left - kliknie lewy przycisk');
-                socket.emit('log', 'Przyklad: .eqclick bot1 38 right - kliknie prawy przycisk');
-                socket.emit('log', 'Przyklad: .eqclick * 36 left shift - lewy + shift');
-                socket.emit('log', '');
-                socket.emit('log', 'Uzyj .listitems aby zobaczyc numery slotow!');
+        } else if (cmd === '.slotclick') {
+            if (parts.length < 3) {
+                socket.emit('log', 'Uzycie: .slotclick <nazwa|*> <slot 0-8|-all> [left|right] [shift]');
             } else {
-                manager.executeEqClick(socket.id, parts[1], parts[2], parts[3], parts[4]);
+                manager.executeSlotClick(socket.id, parts[1], parts[2], parts[3], parts[4]);
             }
         } else if (cmd === '.list') {
             const count = Object.keys(manager.bots).length;
@@ -841,56 +765,12 @@ io.on('connection', (socket) => {
                 socket.emit('log', 'Block commands WYLACZONY - mozesz wysylac komendy (/) w logach');
             }
         } else if (cmd === '.help') {
-            socket.emit('log', 'Komendy glowne:');
-            socket.emit('log', '  .create <nazwa> <ip[:port]> <wersja>');
-            socket.emit('log', '  .start <nazwa|*> [flagi]');
-            socket.emit('log', '  .stop <nazwa|*>');
-            socket.emit('log', '  .delete <nazwa>');
-            socket.emit('log', '  .logs <nazwa|*>');
-            socket.emit('log', '  .listitems <nazwa|*> [together]');
-            socket.emit('log', '  .list');
-            socket.emit('log', '  .clear');
-            socket.emit('log', '  .blockmessages - wlacz/wylacz pisanie wiadomosci w logach');
-            socket.emit('log', '  .blockcommands - wlacz/wylacz wysylanie komend (/) w logach');
-            socket.emit('log', '  .help');
-            socket.emit('log', '');
-            socket.emit('log', 'Komendy akcji:');
-            socket.emit('log', '  .loopuse <nazwa|*>');
-            socket.emit('log', '  .walk <nazwa|*> <forward|back|left|right>');
-            socket.emit('log', '  .dropitem <nazwa|*> <slot>');
-            socket.emit('log', '  .look <nazwa|*> <yaw|kierunek> [pitch]');
-            socket.emit('log', '    Przyklad: .look bot1 90 0 (polnoc)');
-            socket.emit('log', '    Przyklad: .look bot1 north (polnoc)');
-            socket.emit('log', '  .setslot <nazwa|*> <0-8>');
-            socket.emit('log', '  .rightclick <nazwa|*>');
-            socket.emit('log', '  .leftclick <nazwa|*>');
-            socket.emit('log', '  .guiclick <nazwa|*> <slot> <left|right> [shift]');
-            socket.emit('log', '  .autoeat <nazwa|*>');
-            socket.emit('log', '  .follow <nazwa|*> <nick gracza>');
-            socket.emit('log', '  .autofish <nazwa|*>');
-            socket.emit('log', '  .goto <nazwa|*> <x> <y> <z>');
-            socket.emit('log', '  .attack <nazwa|*> <mob|player|all> <range>');
-            socket.emit('log', '  .stats <nazwa|*>');
-            socket.emit('log', '  .eqclick <nazwa|*> <slot> <left|right> [shift]');
-            socket.emit('log', '');
-            socket.emit('log', 'Flagi startu:');
-            socket.emit('log', '  -joinsend <wiadomosc> - Wiadomosc po dolaczeniu (1s)');
-            socket.emit('log', '  -reconnect - Automatyczne ponowne laczenie');
-            socket.emit('log', '  -maxreconnect <liczba> - Max prob reconnect');
-            socket.emit('log', '  -jumpafk - Anti-AFK jump');
-            socket.emit('log', '  -jumpafk:<sekundy> - Jump przez X sekund');
-            socket.emit('log', '  -sneakafk - Anti-AFK sneak');
-            socket.emit('log', '  -sneakafk:<sekundy> - Sneak przez X sekund');
-            socket.emit('log', '  -autofish - Auto lowienie ryb');
-            socket.emit('log', '  -autoeat - Auto jedzenie');
-            socket.emit('log', '  -nowifi - Pomija sprawdzanie internetu');
-            socket.emit('log', '');
-            socket.emit('log', 'Flagi kolejnosciowe:');
-            socket.emit('log', '  -delayflag <ms> - Customowy delay');
-            socket.emit('log', '  -setslot <0-8> - Ustawienie slotu');
-            socket.emit('log', '  -rightclick - Prawy przycisk');
-            socket.emit('log', '  -leftclick - Lewy przycisk');
-            socket.emit('log', '  -guiclick <0-53> - Klikniecie GUI');
+            socket.emit('log', 'Komendy:');
+            socket.emit('log', '  .create .start .stop .delete .logs .list .clear');
+            socket.emit('log', '  .listitems .loopuse .walk .dropitem .look');
+            socket.emit('log', '  .setslot .rightclick .leftclick .guiclick .slotclick');
+            socket.emit('log', '  .follow .goto .attack .stats');
+            socket.emit('log', '  .blockmessages .blockcommands');
         } else {
             socket.emit('log', 'Nieznana komenda! Wpisz .help');
         }
@@ -956,21 +836,11 @@ io.on('connection', (socket) => {
             if (botName && parts[1]) {
                 manager.executeGuiClick(socket.id, botName, parts[1], parts[2], parts[3]);
             }
-        } else if (trimmed === '.autoeat') {
-            const botName = manager.logsModes[socket.id];
-            if (botName) {
-                manager.executeAutoEat(socket.id, botName);
-            }
         } else if (trimmed.startsWith('.follow ')) {
             const parts = trimmed.split(/\s+/);
             const botName = manager.logsModes[socket.id];
             if (botName && parts[1]) {
                 manager.executeFollow(socket.id, botName, parts[1]);
-            }
-        } else if (trimmed === '.autofish') {
-            const botName = manager.logsModes[socket.id];
-            if (botName) {
-                manager.executeAutoFish(socket.id, botName);
             }
         } else if (trimmed.startsWith('.goto ')) {
             const parts = trimmed.split(/\s+/);
@@ -989,11 +859,11 @@ io.on('connection', (socket) => {
             if (botName) {
                 manager.executeStats(socket.id, botName);
             }
-        } else if (trimmed.startsWith('.eqclick ')) {
+        } else if (trimmed.startsWith('.slotclick ')) {
             const parts = trimmed.split(/\s+/);
             const botName = manager.logsModes[socket.id];
-            if (botName && parts[1] && parts[2]) {
-                manager.executeEqClick(socket.id, botName, parts[1], parts[2], parts[3]);
+            if (botName && parts[1]) {
+                manager.executeSlotClick(socket.id, botName, parts[1], parts[2], parts[3]);
             }
         } else if (trimmed) {
             manager.sendMessage(socket.id, trimmed);
