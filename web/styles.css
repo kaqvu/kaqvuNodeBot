@@ -103,11 +103,13 @@ body {
     opacity: 0.8;
 }
 
+.content {
     flex: 1;
     display: flex;
     flex-direction: column;
     min-width: 0;
     overflow: hidden;
+}
 
 .console {
     flex: 1;
