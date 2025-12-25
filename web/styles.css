@@ -103,13 +103,11 @@ body {
     opacity: 0.8;
 }
 
-.content {
     flex: 1;
     display: flex;
     flex-direction: column;
     min-width: 0;
     overflow: hidden;
-}
 
 .console {
     flex: 1;
@@ -271,4 +269,170 @@ button:active {
 
 .bot-item.active {
     animation: neon-glow 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.6;
+    }
+}
+
+.bot-status span {
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateX(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.console-line {
+    animation: fadeIn 0.3s ease-out;
+}
+
+@media (max-width: 768px) {
+    body {
+        height: 100vh;
+        height: 100dvh;
+    }
+
+    .main-container {
+        flex-direction: column;
+    }
+    
+    .sidebar {
+        width: 100%;
+        max-height: 30vh;
+        border-right: none;
+        border-bottom: 2px solid #00ff41;
+        box-shadow: 0 2px 15px rgba(0, 255, 65, 0.3);
+        padding: 15px;
+    }
+    
+    .header {
+        padding: 12px 15px;
+    }
+    
+    .header h1 {
+        font-size: 18px;
+    }
+    
+    .console {
+        font-size: 13px;
+        padding: 12px;
+    }
+    
+    .input-container {
+        padding: 10px;
+        flex-wrap: nowrap;
+    }
+    
+    button {
+        padding: 10px 20px;
+        font-size: 13px;
+    }
+    
+    #commandInput {
+        font-size: 13px;
+        padding: 10px 0;
+    }
+    
+    .help-text {
+        font-size: 10px;
+        margin-top: 8px;
+    }
+    
+    .bot-item {
+        padding: 10px;
+        margin-bottom: 10px;
+    }
+
+    .bot-item:hover {
+        transform: scale(1.03);
+    }
+
+    .sidebar h2 {
+        font-size: 16px;
+        margin-bottom: 10px;
+    }
+}
+
+@media (max-width: 480px) {
+    body {
+        height: 100vh;
+        height: 100dvh;
+    }
+
+    .header {
+        padding: 10px 12px;
+    }
+    
+    .header h1 {
+        font-size: 16px;
+    }
+    
+    .sidebar {
+        padding: 12px;
+        max-height: 30vh;
+    }
+    
+    .sidebar h2 {
+        font-size: 15px;
+        margin-bottom: 8px;
+    }
+    
+    .console {
+        font-size: 12px;
+        padding: 10px;
+    }
+    
+    .input-container {
+        padding: 8px;
+        gap: 6px;
+    }
+    
+    .input-wrapper {
+        padding: 0 12px;
+        border-radius: 15px;
+    }
+    
+    button {
+        padding: 9px 15px;
+        font-size: 12px;
+        border-radius: 15px;
+    }
+    
+    .prompt {
+        font-size: 12px;
+        margin-right: 8px;
+    }
+    
+    #commandInput {
+        font-size: 12px;
+        padding: 10px 0;
+    }
+
+    .bot-item {
+        padding: 8px;
+        margin-bottom: 8px;
+        border-radius: 6px;
+    }
+
+    .bot-item:hover {
+        transform: scale(1.02);
+    }
+
+    .help-text {
+        font-size: 10px;
+        margin-top: 6px;
+    }
 }
